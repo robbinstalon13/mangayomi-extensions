@@ -1,0 +1,24 @@
+[
+  {
+    "name": "nhentai",
+    "id": 177013133,
+    "baseUrl": "https://nhentai.xxx",
+    "lang": "en",
+    "typeSource": "single",
+    "iconUrl": "https://nhentai.xxx/favicon.ico",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": true,
+    "hasCloudflare": true,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/nhentai.js",
+    "apiUrl": "",
+    "version": "1.0.0",
+    "isManga": true,
+    "itemType": 0,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "Primary: nhentai.xxx | Fallback: nhentai.to"
+  }
+]
