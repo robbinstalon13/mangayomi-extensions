@@ -83,7 +83,7 @@ function absoluteUrl(value, fallbackBase) {
     return url;
 }
 
-function normalizeLink(value) {
+function normalizeGalleryPath(value) {
     const match = safeString(value).match(/\/g\/\d+\/?/);
     if (!match) {
         return "";
@@ -95,8 +95,22 @@ function normalizeLink(value) {
     return link;
 }
 
+function buildStoredLink(value, mirrorKey) {
+    const path = normalizeGalleryPath(value);
+    if (!path) {
+        return "";
+    }
+    const key = safeString(mirrorKey).toLowerCase();
+    return key ? path + "#mirror=" + key : path;
+}
+
 function extractGalleryId(url) {
     return firstMatch(url, /\/g\/(\d+)/i);
+}
+
+function extractMirrorKey(url) {
+    const match = safeString(url).match(/[#?&]mirror=(xxx|to)/i);
+    return match ? safeString(match[1]).toLowerCase() : "";
 }
 
 function toDateUpload(value) {
@@ -136,6 +150,17 @@ function stringifyError(error) {
     return safeString(error) || "Unknown error";
 }
 
+function hasUsableNhentaiContent(body) {
+    const html = safeString(body);
+    if (!html) {
+        return false;
+    }
+    return /href=["']\/g\/\d+\/?["']/i.test(html) ||
+        /id="load_server"/i.test(html) ||
+        /var g_th = \$\.parseJSON\('/i.test(html) ||
+        /<h1[^>]*>/i.test(html) && /<img[^>]+(?:src|data-src)=["'][^"']+\/cover\.[^"']+["']/i.test(html);
+}
+
 function isCloudflareBlocked(response) {
     if (!response) {
         return true;
@@ -148,10 +173,14 @@ function isCloudflareBlocked(response) {
     if (!body) {
         return true;
     }
-    return body.indexOf("cf-browser-verification") !== -1 ||
+    const hasChallengeMarker = body.indexOf("cf-browser-verification") !== -1 ||
         body.indexOf("/cdn-cgi/challenge-platform/") !== -1 ||
         body.indexOf("<title>just a moment") !== -1 ||
         body.indexOf("attention required!") !== -1;
+    if (!hasChallengeMarker) {
+        return false;
+    }
+    return !hasUsableNhentaiContent(body);
 }
 
 function parseHasNextPage(html, currentPage) {
@@ -188,7 +217,7 @@ function getBestImage(cardHtml, fallbackBase) {
     return imageUrl;
 }
 
-function parseGalleryCards(html, domainBase) {
+function parseGalleryCards(html, domainBase, domainKey) {
     const list = [];
     const seen = {};
     const pattern = /<a href="(\/g\/\d+\/?)"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -197,7 +226,7 @@ function parseGalleryCards(html, domainBase) {
         if (match[0].indexOf("<img") === -1 || match[0].indexOf("caption") === -1) {
             continue;
         }
-        const link = normalizeLink(match[1]);
+        const link = buildStoredLink(match[1], domainKey);
         if (!link || seen[link]) {
             continue;
         }
@@ -278,12 +307,12 @@ function buildDescription(subtitle, pageCount, artists, languages, categories, t
     return lines.join("\n");
 }
 
-function buildDetailObject(link, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, scanlator) {
+function buildDetailObject(storedLink, path, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, scanlator) {
     const author = artists.length > 0 ? artists.join(", ") : "";
     const uploadedText = uploadedIso ? safeString(uploadedIso) : "";
     return {
         name: name || "Unknown",
-        link: normalizeLink(link),
+        link: safeString(storedLink) || path,
         imageUrl: imageUrl || "",
         description: buildDescription(subtitle, pageCount, artists, languages, categories, tags, uploadedText),
         author: author,
@@ -292,14 +321,14 @@ function buildDetailObject(link, name, imageUrl, subtitle, artists, languages, c
         status: 1,
         chapters: [{
             name: pageCount > 0 ? "Read (" + pageCount + " pages)" : "Read",
-            url: normalizeLink(link),
+            url: safeString(storedLink) || path,
             scanlator: scanlator || "",
             dateUpload: toDateUpload(uploadedIso)
         }]
     };
 }
 
-function parseXxxDetail(html, link) {
+function parseXxxDetail(html, storedLink, path) {
     const name = stripTags(firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i)) || "Unknown";
     const subtitle = stripTags(firstMatch(html, /<h2[^>]*>([\s\S]*?)<\/h2>/i));
     let imageUrl = absoluteUrl(
@@ -308,6 +337,9 @@ function parseXxxDetail(html, link) {
     if (!imageUrl) {
         imageUrl = absoluteUrl(firstMatch(html, /<img[^>]+data-src="(https?:\/\/[^"]+\/cover\.[^"]+)"/i));
     }
+    if (!imageUrl) {
+        imageUrl = absoluteUrl(firstMatch(html, /<img[^>]+src="(https?:\/\/[^"]+\/cover\.[^"]+)"/i));
+    }
     const sections = parseXxxTagSections(html);
     const tags = uniqueStrings(sections.tags || []);
     const artists = uniqueStrings(sections.artists || []);
@@ -315,10 +347,10 @@ function parseXxxDetail(html, link) {
     const categories = uniqueStrings(sections.category || sections.categories || []);
     const pageCount = parseInt(firstMatch(html, /<span class="tag_name pages">(\d+)<\/span>/i), 10) || 0;
     const uploadedIso = firstMatch(html, /data-utc="([^"]+)"/i);
-    return buildDetailObject(link, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, "");
+    return buildDetailObject(storedLink, path, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, "");
 }
 
-function parseToDetail(html, link) {
+function parseToDetail(html, storedLink, path) {
     const name = stripTags(firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i)) || "Unknown";
     const subtitle = stripTags(firstMatch(html, /<h2[^>]*>([\s\S]*?)<\/h2>/i));
     let imageUrl = absoluteUrl(
@@ -334,7 +366,7 @@ function parseToDetail(html, link) {
     const categories = uniqueStrings(sections.category || sections.categories || []);
     const pageCount = parseInt((sections.pages && sections.pages[0]) || "0", 10) || 0;
     const uploadedIso = firstMatch(html, /<time[^>]+datetime="([^"]+)"/i);
-    return buildDetailObject(link, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, "");
+    return buildDetailObject(storedLink, path, name, imageUrl, subtitle, artists, languages, categories, tags, pageCount, uploadedIso, "");
 }
 
 function isXxxHtml(html) {
@@ -391,6 +423,17 @@ function parseReaderImage(html) {
     return imageUrl;
 }
 
+function findMirrorByKey(mirrors, mirrorKey) {
+    const key = safeString(mirrorKey).toLowerCase();
+    const list = Array.isArray(mirrors) ? mirrors : [];
+    for (let i = 0; i < list.length; i++) {
+        if (safeString(list[i] && list[i].key).toLowerCase() === key) {
+            return list[i];
+        }
+    }
+    return null;
+}
+
 class DefaultExtension extends MProvider {
     constructor() {
         super();
@@ -437,10 +480,11 @@ class DefaultExtension extends MProvider {
         return body;
     }
 
-    async tryWithFallback(callback) {
+    async tryWithMirrors(mirrors, callback) {
         let lastError = null;
-        for (let i = 0; i < this.mirrors.length; i++) {
-            const domain = this.mirrors[i];
+        const domains = Array.isArray(mirrors) && mirrors.length > 0 ? mirrors : this.mirrors;
+        for (let i = 0; i < domains.length; i++) {
+            const domain = domains[i];
             try {
                 this.currentBase = domain.base;
                 return await callback.call(this, domain);
@@ -450,6 +494,18 @@ class DefaultExtension extends MProvider {
             }
         }
         throw lastError || new Error("All nhentai mirrors failed");
+    }
+
+    async tryWithFallback(callback) {
+        return await this.tryWithMirrors(this.mirrors, callback);
+    }
+
+    getMirrorsForLink(mirrorKey) {
+        const forcedMirror = findMirrorByKey(this.mirrors, mirrorKey);
+        if (forcedMirror) {
+            return [forcedMirror];
+        }
+        return this.mirrors;
     }
 
     buildListPath(domain, mode, query, page) {
@@ -471,7 +527,7 @@ class DefaultExtension extends MProvider {
     }
 
     parseListResponse(html, page, domain) {
-        const list = parseGalleryCards(html, domain.base);
+        const list = parseGalleryCards(html, domain.base, domain.key);
         return {
             list: list,
             hasNextPage: list.length > 0 && parseHasNextPage(html, page)
@@ -520,16 +576,18 @@ class DefaultExtension extends MProvider {
 
     async getDetail(url) {
         try {
-            const link = normalizeLink(url);
-            if (!link) {
+            const storedLink = safeString(url);
+            const path = normalizeGalleryPath(storedLink);
+            if (!path) {
                 throw new Error("Invalid gallery url: " + safeString(url));
             }
-            return await this.tryWithFallback(async function (domain) {
-                const html = await this.requestHtml(domain, link);
+            const mirrorKey = extractMirrorKey(storedLink);
+            return await this.tryWithMirrors(this.getMirrorsForLink(mirrorKey), async function (domain) {
+                const html = await this.requestHtml(domain, path);
                 if (isXxxHtml(html)) {
-                    return parseXxxDetail(html, link);
+                    return parseXxxDetail(html, storedLink, path);
                 }
-                return parseToDetail(html, link);
+                return parseToDetail(html, storedLink, path);
             });
         } catch (error) {
             this.logError("getDetail", error);
@@ -537,15 +595,15 @@ class DefaultExtension extends MProvider {
         }
     }
 
-    async buildToPageList(domain, link) {
-        const html = await this.requestHtml(domain, link);
-        const galleryId = extractGalleryId(link);
+    async buildToPageList(domain, path) {
+        const html = await this.requestHtml(domain, path);
+        const galleryId = extractGalleryId(path);
         if (!galleryId) {
-            throw new Error("Missing gallery id for " + link);
+            throw new Error("Missing gallery id for " + path);
         }
         const pageLinks = collectToPageLinks(html, galleryId);
         if (pageLinks.length === 0) {
-            throw new Error("Could not find page links for " + link);
+            throw new Error("Could not find page links for " + path);
         }
         const pages = [];
         for (let i = 0; i < pageLinks.length; i++) {
@@ -561,19 +619,21 @@ class DefaultExtension extends MProvider {
 
     async getPageList(url) {
         try {
-            const link = normalizeLink(url);
-            if (!link) {
+            const storedLink = safeString(url);
+            const path = normalizeGalleryPath(storedLink);
+            if (!path) {
                 throw new Error("Invalid gallery url: " + safeString(url));
             }
-            return await this.tryWithFallback(async function (domain) {
-                const html = await this.requestHtml(domain, link);
+            const mirrorKey = extractMirrorKey(storedLink);
+            return await this.tryWithMirrors(this.getMirrorsForLink(mirrorKey), async function (domain) {
+                const html = await this.requestHtml(domain, path);
                 if (isXxxHtml(html)) {
                     const pages = buildXxxPageList(html);
                     if (pages.length > 0) {
                         return pages;
                     }
                 }
-                return await this.buildToPageList(domain, link);
+                return await this.buildToPageList(domain, path);
             });
         } catch (error) {
             this.logError("getPageList", error);
