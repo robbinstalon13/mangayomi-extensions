@@ -1,11 +1,8 @@
 const HENTAINEXUS_BASE = "https://hentainexus.com";
-
 const HENTAINEXUS_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 function safeString(value) {
-    if (value === null || value === undefined) {
-        return "";
-    }
+    if (value === null || value === undefined) return "";
     return String(value);
 }
 
@@ -13,169 +10,172 @@ function stripTags(value) {
     return safeString(value).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function decodeHtml(value) {
+    return safeString(value)
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&#(\d+);/g, function (_, code) {
+            const v = parseInt(code, 10);
+            return isNaN(v) ? _ : String.fromCharCode(v);
+        })
+        .replace(/&quot;/gi, "\"")
+        .replace(/&#039;|&apos;/gi, "'")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">");
+}
+
+function firstMatch(text, regex) {
+    const m = safeString(text).match(regex);
+    if (!m || m.length < 2) return "";
+    return safeString(m[1]);
+}
+
 function stringifyError(error) {
-    if (error && error.message) {
-        return safeString(error.message);
-    }
+    if (error && error.message) return safeString(error.message);
     return safeString(error) || "Unknown error";
 }
 
 function isCloudflareBlocked(response) {
-    if (!response) {
-        return true;
-    }
+    if (!response) return true;
     const code = Number(response.statusCode || 0);
-    if (code === 403 || code === 429 || code === 503) {
-        return true;
-    }
+    if (code === 403 || code === 429 || code === 503) return true;
     const body = safeString(response.body).toLowerCase();
-    if (!body) {
-        return true;
-    }
-    const hasChallengeMarker = body.indexOf("cf-browser-verification") !== -1 ||
+    if (!body) return true;
+    return body.indexOf("cf-browser-verification") !== -1 ||
         body.indexOf("/cdn-cgi/challenge-platform/") !== -1 ||
-        body.indexOf("<title>just a moment") !== -1 ||
-        body.indexOf("attention required!") !== -1;
-    return hasChallengeMarker;
+        body.indexOf("<title>just a moment") !== -1;
 }
 
 function extractGalleryId(url) {
-    const match = safeString(url).match(/\/view\/(\d+)/i);
-    return match ? match[1] : "";
+    const m = safeString(url).match(/\/view\/(\d+)/i);
+    return m ? m[1] : "";
 }
 
-function parseGalleryList(html) {
+// Parse HentaiNexus gallery cards
+// Structure: <a href="/view/ID">
+//   <div class="card">
+//     <header class="card-header" title="TITLE">
+//       <p class="card-header-title">TITLE</p>
+//     </header>
+//     <div class="card-image"><figure class="image">
+//       <img src="https://images.hentainexus.com/v2/HASH/001.jpg.thumb.jpg">
+//     </figure></div>
+//   </div>
+// </a>
+function parseGalleryCards(html) {
     const list = [];
     const seen = {};
     const htmlStr = safeString(html);
     
-    // HentaiNexus gallery list pattern - looking for links to /view/{id}
-    // The site lists galleries with title as the link text
-    const pattern = /<a href="\/view\/(\d+)"[^>]*>([^<]+)<\/a>/gi;
+    const pattern = /<a href="\/view\/(\d+)">\s*<div class="card">\s*<header class="card-header"(?:\s+title="([^"]*)")?[^>]*>\s*<p class="card-header-title">([^<]*)<\/p>\s*<\/header>\s*<div class="card-image">\s*<figure[^>]*>\s*<img src="([^"]+)"/gi;
     
     let match;
     while ((match = pattern.exec(htmlStr)) !== null) {
         const id = match[1];
-        const name = stripTags(match[2]) || "Unknown";
+        const titleFromAttr = decodeHtml(match[2] || "");
+        const titleFromText = decodeHtml(stripTags(match[3]));
+        const title = titleFromAttr || titleFromText || "Unknown";
+        const imageUrl = match[4];
         const url = "/view/" + id;
         
-        if (!id || seen[url]) {
-            continue;
-        }
+        if (!id || seen[url]) continue;
         seen[url] = true;
         
         list.push({
-            name: name,
+            name: title,
             link: url,
-            imageUrl: "" // Will be fetched from detail page
+            imageUrl: imageUrl
         });
     }
     
-    // Try to extract thumbnails if available
-    // HentaiNexus may have thumbs in the listing
-    if (list.length > 0) {
-        const thumbPattern = /<a href="\/view\/(\d+)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>/gi;
-        const thumbs = {};
-        while ((match = thumbPattern.exec(htmlStr)) !== null) {
-            thumbs["/view/" + match[1]] = match[2];
-        }
-        
-        for (const item of list) {
-            if (thumbs[item.link]) {
-                item.imageUrl = thumbs[item.link];
-            }
+    // Fallback: simpler pattern if the above doesn't match
+    if (list.length === 0) {
+        const simplePattern = /<a href="\/view\/(\d+)">[\s\S]*?<p class="card-header-title">([\s\S]*?)<\/p>[\s\S]*?<img src="([^"]+)"/gi;
+        while ((match = simplePattern.exec(htmlStr)) !== null) {
+            const id = match[1];
+            const url = "/view/" + id;
+            if (!id || seen[url]) continue;
+            seen[url] = true;
+            list.push({
+                name: decodeHtml(stripTags(match[2])) || "Unknown",
+                link: url,
+                imageUrl: match[3]
+            });
         }
     }
     
     return list;
 }
 
-function parseHasNextPage(html, currentPage) {
-    const pageNum = parseInt(currentPage, 10) || 1;
-    const htmlStr = safeString(html);
-    
-    // Check for next page navigation
-    return /href="[^"]*\/page\/(\d+)"[^>]*>\s*Next/i.test(htmlStr) ||
-           /class="[^"]*pagination[^"]*".*?>/i.test(htmlStr) && 
-           htmlStr.indexOf(">" + (pageNum + 1) + "<") !== -1;
+function parseHasNextPage(html) {
+    return /class="pagination-next"[^>]+href="\/page\/\d+"/i.test(safeString(html));
 }
 
+// Parse gallery detail page
 function parseGalleryDetail(html) {
     const htmlStr = safeString(html);
     
-    // Extract title - usually in h1 or h2
-    let title = "Unknown";
-    const titleMatch = htmlStr.match(/<h1[^>]*>([^<]+)<\/h1>/i) ||
-                       htmlStr.match(/<h2[^>]*>([^<]+)<\/h2>/i) ||
-                       htmlStr.match(/<title>([^<]+)<\/title>/i);
-    if (titleMatch) {
-        title = stripTags(titleMatch[1]).replace(/\s*-\s*HentaiNexus$/i, "");
+    // Title from h1.title
+    let title = decodeHtml(stripTags(firstMatch(htmlStr, /<h1 class="title">([\s\S]*?)<\/h1>/i))) || "Unknown";
+    
+    // Cover image
+    let imageUrl = firstMatch(htmlStr, /<a href="\/read\/\d+">\s*<figure[^>]*>\s*<img src="([^"]+)"/i);
+    if (!imageUrl) {
+        imageUrl = firstMatch(htmlStr, /<img src="(https:\/\/images\.hentainexus\.com\/v2\/[^"]+)"/i);
     }
     
-    // Extract cover/thumbnail image
-    let imageUrl = "";
-    const coverMatch = htmlStr.match(/<img[^>]+class="[^"]*cover[^"]*"[^>]+src="([^"]+)"/i) ||
-                       htmlStr.match(/<img[^>]+id="cover"[^>]+src="([^"]+)"/i) ||
-                       htmlStr.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
-    if (coverMatch) {
-        imageUrl = coverMatch[1];
-    }
-    
-    // Extract page count
-    let pageCount = 0;
-    const pageMatch = htmlStr.match(/(\d+)\s*pages?/i) ||
-                      htmlStr.match(/Pages?:?\s*(\d+)/i);
-    if (pageMatch) {
-        pageCount = parseInt(pageMatch[1], 10) || 0;
-    }
-    
-    // Extract description/summary
-    let description = "";
-    const descMatch = htmlStr.match(/<div[^>]+class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                      htmlStr.match(/<meta[^>]+name="description"[^>]+content="([^"]+)"/i);
-    if (descMatch) {
-        description = stripTags(descMatch[1]);
-    }
-    
-    // Extract tags
+    // Parse details table
     const tags = [];
-    const tagPattern = /<a[^>]+href="\/tag\/[^"]+"[^>]*>([^<]+)<\/a>/gi;
-    let tagMatch;
-    while ((tagMatch = tagPattern.exec(htmlStr)) !== null) {
-        const tag = stripTags(tagMatch[1]);
-        if (tag && tags.indexOf(tag) === -1) {
-            tags.push(tag);
+    const artists = [];
+    const parodies = [];
+    const characters = [];
+    let description = "";
+    let pageCount = 0;
+    let language = "";
+    
+    // Tag pattern - all detail links
+    const tagPattern = /<td[^>]*class="tag-table-row-value"[^>]*>([\s\S]*?)<\/td>/gi;
+    const labelPattern = /<th[^>]*class="tag-table-row-label"[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*class="tag-table-row-value"[^>]*>([\s\S]*?)<\/td>/gi;
+    
+    let labelMatch;
+    while ((labelMatch = labelPattern.exec(htmlStr)) !== null) {
+        const label = decodeHtml(stripTags(labelMatch[1])).toLowerCase().replace(/:/g, "").trim();
+        const valueHtml = labelMatch[2];
+        const values = [];
+        let valueMatch;
+        const linkPattern = /<a[^>]*>([^<]+)<\/a>/gi;
+        while ((valueMatch = linkPattern.exec(valueHtml)) !== null) {
+            const v = decodeHtml(stripTags(valueMatch[1]));
+            if (v) values.push(v);
+        }
+        
+        if (label.indexOf("artist") !== -1) {
+            for (let i = 0; i < values.length; i++) artists.push(values[i]);
+        } else if (label.indexOf("parody") !== -1 || label.indexOf("series") !== -1) {
+            for (let i = 0; i < values.length; i++) parodies.push(values[i]);
+        } else if (label.indexOf("character") !== -1) {
+            for (let i = 0; i < values.length; i++) characters.push(values[i]);
+        } else if (label.indexOf("tag") !== -1) {
+            for (let i = 0; i < values.length; i++) tags.push(values[i]);
+        } else if (label.indexOf("language") !== -1) {
+            language = values.join(", ");
+        } else if (label.indexOf("pages") !== -1) {
+            pageCount = parseInt(decodeHtml(stripTags(valueHtml)), 10) || 0;
+        } else if (label.indexOf("description") !== -1) {
+            description = decodeHtml(stripTags(valueHtml));
         }
     }
-    
-    // Extract artist
-    let artist = "";
-    const artistPattern = /<a[^>]+href="\/artist\/[^"]+"[^>]*>([^<]+)<\/a>/gi;
-    const artistMatch = artistPattern.exec(htmlStr);
-    if (artistMatch) {
-        artist = stripTags(artistMatch[1]);
-    }
-    
-    // Extract parody
-    let parody = "";
-    const parodyPattern = /<a[^>]+href="\/parody\/[^"]+"[^>]*>([^<]+)<\/a>/gi;
-    const parodyMatch = parodyPattern.exec(htmlStr);
-    if (parodyMatch) {
-        parody = stripTags(parodyMatch[1]);
-    }
-    
-    // HentaiNexus is primarily English content
-    const isEnglish = true;
     
     return {
         title: title,
         imageUrl: imageUrl,
         pageCount: pageCount,
-        description: description,
         tags: tags,
-        isEnglish: isEnglish,
-        artist: artist,
-        parody: parody
+        artists: artists,
+        parodies: parodies,
+        characters: characters,
+        description: description,
+        language: language
     };
 }
 
@@ -184,9 +184,8 @@ class DefaultExtension extends MProvider {
         super();
         this.clientConfig = {
             verifyCertificates: false,
-            timeout: 10
+            timeout: 15
         };
-        this.currentBase = HENTAINEXUS_BASE;
     }
 
     get supportsLatest() {
@@ -196,7 +195,7 @@ class DefaultExtension extends MProvider {
     getHeaders() {
         return {
             "User-Agent": HENTAINEXUS_USER_AGENT,
-            "Referer": this.currentBase + "/",
+            "Referer": HENTAINEXUS_BASE + "/",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9"
         };
@@ -226,43 +225,32 @@ class DefaultExtension extends MProvider {
     buildListUrl(mode, query, page) {
         const pageValue = Math.max(1, parseInt(page, 10) || 1);
         
-        if (mode === "popular" || mode === "hot") {
+        if (mode === "popular") {
             return HENTAINEXUS_BASE + "/explore/hot" + (pageValue > 1 ? "?page=" + pageValue : "");
         }
         
-        if (mode === "recommended") {
-            return HENTAINEXUS_BASE + "/explore/recommend" + (pageValue > 1 ? "?page=" + pageValue : "");
-        }
-        
-        if (mode === "search" && query) {
-            // HentaiNexus search
+        if (mode === "search" && safeString(query).trim()) {
+            // HentaiNexus search via URL param
             return HENTAINEXUS_BASE + "/?q=" + encodeURIComponent(query) + (pageValue > 1 ? "&page=" + pageValue : "");
         }
         
-        // Default: Latest updates (home page)
+        // Default: Latest (home with pagination)
         return HENTAINEXUS_BASE + "/" + (pageValue > 1 ? "page/" + pageValue : "");
     }
 
     async fetchList(mode, query, page) {
         const url = this.buildListUrl(mode, query, page);
         const html = await this.requestHtml(url);
-        const list = parseGalleryList(html);
-        
-        // HentaiNexus is English-only, but verify
-        const englishList = list.filter(item => {
-            // All HentaiNexus content is English
-            return true;
-        });
-        
+        const list = parseGalleryCards(html);
         return {
-            list: englishList,
-            hasNextPage: list.length > 0 && parseHasNextPage(html, page)
+            list: list,
+            hasNextPage: list.length > 0 && parseHasNextPage(html)
         };
     }
 
     async getPopular(page) {
         try {
-            return await this.fetchList("hot", "", page);
+            return await this.fetchList("popular", "", page);
         } catch (error) {
             this.logError("getPopular", error);
             throw error;
@@ -290,43 +278,36 @@ class DefaultExtension extends MProvider {
     async getDetail(url) {
         try {
             const id = extractGalleryId(url);
-            if (!id) {
-                throw new Error("Invalid gallery URL: " + url);
-            }
+            if (!id) throw new Error("Invalid gallery URL: " + url);
             
-            const fullUrl = url.startsWith("http") ? url : HENTAINEXUS_BASE + url;
+            const fullUrl = url.indexOf("http") === 0 ? url : HENTAINEXUS_BASE + url;
             const html = await this.requestHtml(fullUrl);
             const detail = parseGalleryDetail(html);
             
-            const pageCount = detail.pageCount || 0;
             const lines = [];
-            if (detail.description) {
-                lines.push(detail.description);
-            }
-            if (detail.parody) {
-                lines.push("Parody: " + detail.parody);
-            }
-            if (detail.artist) {
-                lines.push("Artist: " + detail.artist);
-            }
-            if (detail.pageCount) {
-                lines.push("Pages: " + detail.pageCount);
-            }
-            if (detail.tags.length > 0) {
-                lines.push("Tags: " + detail.tags.slice(0, 10).join(", "));
-            }
+            if (detail.description) lines.push(detail.description);
+            if (detail.parodies.length > 0) lines.push("Parodies: " + detail.parodies.join(", "));
+            if (detail.characters.length > 0) lines.push("Characters: " + detail.characters.slice(0, 8).join(", "));
+            if (detail.artists.length > 0) lines.push("Artists: " + detail.artists.join(", "));
+            if (detail.pageCount) lines.push("Pages: " + detail.pageCount);
+            if (detail.language) lines.push("Language: " + detail.language);
+            if (detail.tags.length > 0) lines.push("Tags: " + detail.tags.slice(0, 15).join(", "));
+            
+            const genre = [].concat(detail.tags, detail.parodies);
             
             return {
                 name: detail.title,
                 link: url,
                 imageUrl: detail.imageUrl,
                 description: lines.join("\n"),
-                author: detail.artist || "Unknown",
-                genre: detail.tags,
+                author: detail.artists.join(", ") || "Unknown",
+                artist: detail.artists.join(", "),
+                genre: genre,
                 status: 1,
                 chapters: [{
-                    name: pageCount > 0 ? "Read (" + pageCount + " pages)" : "Read",
+                    name: detail.pageCount > 0 ? "Read (" + detail.pageCount + " pages)" : "Read",
                     url: url,
+                    scanlator: "",
                     dateUpload: ""
                 }]
             };
@@ -339,78 +320,50 @@ class DefaultExtension extends MProvider {
     async getPageList(url) {
         try {
             const id = extractGalleryId(url);
-            if (!id) {
-                throw new Error("Invalid gallery URL: " + url);
-            }
+            if (!id) throw new Error("Invalid gallery URL: " + url);
             
-            const fullUrl = url.startsWith("http") ? url : HENTAINEXUS_BASE + url;
+            // HentaiNexus images use encrypted URLs decoded client-side in /read/ID
+            // Try pattern: replace .thumb.jpg with just the base jpg on thumbnail URLs
+            const fullUrl = url.indexOf("http") === 0 ? url : HENTAINEXUS_BASE + url;
             const html = await this.requestHtml(fullUrl);
             
-            // Extract image URLs from the gallery page
+            // Collect unique image hashes from the view page
             const pages = [];
-            
-            // HentaiNexus uses various image hosting patterns
-            // Try to find image links or data
-            const imagePattern = /href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|gif|webp))"/gi;
-            let match;
-            while ((match = imagePattern.exec(html)) !== null) {
-                const imgUrl = match[1];
-                if (imgUrl.indexOf("hentainexus") !== -1 || 
-                    imgUrl.indexOf("nxcdn") !== -1 ||
-                    imgUrl.indexOf("i.") !== -1) {
-                    pages.push(imgUrl);
-                }
-            }
-            
-            // Alternative: Look for data attributes with image URLs
-            if (pages.length === 0) {
-                const dataPattern = /data-(?:src|url|image)="(https?:\/\/[^"]+)"/gi;
-                while ((match = dataPattern.exec(html)) !== null) {
-                    const imgUrl = match[1];
-                    if (/\.(jpg|jpeg|png|gif|webp)$/i.test(imgUrl)) {
-                        pages.push(imgUrl);
-                    }
-                }
-            }
-            
-            // Another approach: Look for page links and fetch them
-            if (pages.length === 0) {
-                const pageLinkPattern = /href="(\/view\/\d+\/\d+)"/gi;
-                const pageLinks = [];
-                while ((match = pageLinkPattern.exec(html)) !== null) {
-                    pageLinks.push(HENTAINEXUS_BASE + match[1]);
-                }
-                
-                // Fetch first few pages to get image URLs
-                const maxPages = Math.min(pageLinks.length, 50); // Limit concurrent requests
-                for (let i = 0; i < maxPages; i++) {
-                    try {
-                        const pageHtml = await this.requestHtml(pageLinks[i]);
-                        const imgMatch = pageHtml.match(/<img[^>]+src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|gif|webp))"/i);
-                        if (imgMatch) {
-                            pages.push(imgMatch[1]);
-                        }
-                    } catch (e) {
-                        console.log("[hentainexus] Failed to fetch page: " + pageLinks[i]);
-                    }
-                }
-            }
-            
-            // Remove duplicates while preserving order
-            const uniquePages = [];
             const seen = {};
-            for (const url of pages) {
-                if (!seen[url]) {
-                    seen[url] = true;
-                    uniquePages.push(url);
+            const pattern = /src="(https:\/\/images\.hentainexus\.com\/v2\/[a-f0-9]+\/(\d+)\.jpg)(?:\.thumb\.jpg)?"/gi;
+            let match;
+            while ((match = pattern.exec(html)) !== null) {
+                const fullImgUrl = match[1];
+                if (!seen[fullImgUrl]) {
+                    seen[fullImgUrl] = true;
+                    pages.push(fullImgUrl);
                 }
             }
             
-            if (uniquePages.length === 0) {
-                throw new Error("Could not extract page images");
+            // If only 1 image found from view page (just cover), try fetching /read/ page
+            if (pages.length <= 1) {
+                try {
+                    const readUrl = HENTAINEXUS_BASE + "/read/" + id;
+                    const readHtml = await this.requestHtml(readUrl);
+                    
+                    // The read page has initReader with encrypted data - try to find image URLs
+                    const readPattern = /(?:src|data-src)="(https:\/\/images\.hentainexus\.com\/v2\/[a-f0-9]+\/\d+\.[a-z]+)(?:\.thumb\.\w+)?"/gi;
+                    while ((match = readPattern.exec(readHtml)) !== null) {
+                        const u = match[1];
+                        if (!seen[u]) {
+                            seen[u] = true;
+                            pages.push(u);
+                        }
+                    }
+                } catch (e) {
+                    console.log("[hentainexus] read page fetch failed");
+                }
             }
             
-            return uniquePages;
+            if (pages.length === 0) {
+                throw new Error("Could not extract page images - site uses encrypted image URLs. Try the WebView option.");
+            }
+            return pages;
         } catch (error) {
             this.logError("getPageList", error);
             throw error;

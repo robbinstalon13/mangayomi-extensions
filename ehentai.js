@@ -1,12 +1,9 @@
 const EHENTAI_BASE = "https://e-hentai.org";
 const EHENTAI_API = "https://api.e-hentai.org/api.php";
-
 const EHENTAI_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 function safeString(value) {
-    if (value === null || value === undefined) {
-        return "";
-    }
+    if (value === null || value === undefined) return "";
     return String(value);
 }
 
@@ -14,92 +11,123 @@ function stripTags(value) {
     return safeString(value).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function parseJsonSafe(value, fallbackValue) {
+function decodeHtml(value) {
+    return safeString(value)
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&#(\d+);/g, function (_, code) {
+            const v = parseInt(code, 10);
+            return isNaN(v) ? _ : String.fromCharCode(v);
+        })
+        .replace(/&#x([0-9a-fA-F]+);/g, function (_, code) {
+            const v = parseInt(code, 16);
+            return isNaN(v) ? _ : String.fromCharCode(v);
+        })
+        .replace(/&quot;/gi, "\"")
+        .replace(/&#039;|&apos;/gi, "'")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">");
+}
+
+function firstMatch(text, regex) {
+    const m = safeString(text).match(regex);
+    if (!m || m.length < 2) return "";
+    return safeString(m[1]);
+}
+
+function parseJsonSafe(value, fallback) {
     try {
         return JSON.parse(value);
-    } catch (error) {
-        return fallbackValue;
+    } catch (e) {
+        return fallback;
     }
 }
 
 function stringifyError(error) {
-    if (error && error.message) {
-        return safeString(error.message);
-    }
+    if (error && error.message) return safeString(error.message);
     return safeString(error) || "Unknown error";
 }
 
 function isCloudflareBlocked(response) {
-    if (!response) {
-        return true;
-    }
+    if (!response) return true;
     const code = Number(response.statusCode || 0);
-    if (code === 403 || code === 429 || code === 503) {
-        return true;
-    }
+    if (code === 403 || code === 429 || code === 503) return true;
     const body = safeString(response.body).toLowerCase();
-    if (!body) {
-        return true;
-    }
-    const hasChallengeMarker = body.indexOf("cf-browser-verification") !== -1 ||
+    if (!body) return true;
+    return body.indexOf("cf-browser-verification") !== -1 ||
         body.indexOf("/cdn-cgi/challenge-platform/") !== -1 ||
-        body.indexOf("<title>just a moment") !== -1 ||
-        body.indexOf("attention required!") !== -1;
-    return hasChallengeMarker;
+        body.indexOf("<title>just a moment") !== -1;
 }
 
-function extractGalleryIdAndToken(url) {
-    const match = safeString(url).match(/\/g\/(\d+)\/([a-f0-9]+)/i);
-    if (match) {
-        return { gid: parseInt(match[1], 10), token: match[2] };
-    }
-    return null;
+function extractGidToken(url) {
+    const m = safeString(url).match(/\/g\/(\d+)\/([a-f0-9]+)/i);
+    if (!m) return null;
+    return { gid: parseInt(m[1], 10), token: m[2], url: m[0] };
 }
 
+// Parse E-Hentai gallery list rows
+// Structure: <tr><td class="gl1c glcat">...</td><td class="gl2c"><img data-src="THUMB"/></td>
+// <td class="gl3c glname"><a href="URL"><div class="glink">TITLE</div>...</a></td></tr>
 function parseGalleryCards(html) {
     const list = [];
     const seen = {};
-    // E-Hentai gallery list pattern
-    const pattern = /<div class="gl[1-6]?t\s*"[^>]*>.*?<a href="(https?:\/\/e-hentai\.org\/g\/\d+\/[^\/"]+)\/?"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<div class="gld\d?">([^<]*)<\/div>/gi;
+    const htmlStr = safeString(html);
+    
+    // Match each gallery row - extensions compact/thumbnail/extended layouts all have gl3c glname with glink
+    const rowPattern = /<tr[^>]*>[\s\S]*?<td[^>]*class="gl2c"[^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*class="gl3c glname"[^>]*>([\s\S]*?)<\/td>/gi;
+    
     let match;
-    while ((match = pattern.exec(safeString(html))) !== null) {
-        const url = match[1];
-        const imageUrl = match[2];
-        const name = stripTags(match[3]) || "Unknown";
-        if (!url || seen[url]) {
-            continue;
+    while ((match = rowPattern.exec(htmlStr)) !== null) {
+        const thumbCell = match[1];
+        const nameCell = match[2];
+        
+        // Extract title from glink div
+        const title = decodeHtml(stripTags(firstMatch(nameCell, /<div class="glink">([\s\S]*?)<\/div>/i)));
+        if (!title) continue;
+        
+        // Extract URL from anchor
+        const url = firstMatch(nameCell, /<a href="(https?:\/\/e-hentai\.org\/g\/\d+\/[a-f0-9]+\/?)"/i);
+        if (!url || seen[url]) continue;
+        
+        // Extract thumbnail - prefer data-src over src
+        let imageUrl = firstMatch(thumbCell, /data-src="([^"]+)"/i);
+        if (!imageUrl || imageUrl.indexOf("data:image") === 0) {
+            imageUrl = firstMatch(thumbCell, /<img[^>]+src="([^"]+)"/i);
         }
+        if (imageUrl && imageUrl.indexOf("data:image") === 0) {
+            imageUrl = "";
+        }
+        
         seen[url] = true;
         list.push({
-            name: name,
+            name: title,
             link: url,
             imageUrl: imageUrl
         });
     }
-    // Alternative pattern for different E-Hentai layouts
+    
+    // Fallback: minimal layout without gl2c/gl3c (e.g. thumbnail view)
     if (list.length === 0) {
-        const altPattern = /<a href="(https?:\/\/e-hentai\.org\/g\/(\d+)\/([a-f0-9]+))\/?"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<div[^>]*>([^<]+)<\/div>/gi;
-        while ((match = altPattern.exec(safeString(html))) !== null) {
+        const thumbPattern = /<div class="id1"[^>]*>[\s\S]*?<a href="(https?:\/\/e-hentai\.org\/g\/\d+\/[a-f0-9]+\/?)"[^>]*>[\s\S]*?<img[^>]+(?:data-src|src)="([^"]+)"[^>]*>[\s\S]*?<div class="id3"[^>]*>([\s\S]*?)<\/div>/gi;
+        while ((match = thumbPattern.exec(htmlStr)) !== null) {
             const url = match[1];
-            const imageUrl = match[4];
-            const name = stripTags(match[5]) || "Unknown";
-            if (!url || seen[url]) {
-                continue;
-            }
+            if (seen[url]) continue;
             seen[url] = true;
             list.push({
-                name: name,
+                name: decodeHtml(stripTags(match[3])) || "Unknown",
                 link: url,
-                imageUrl: imageUrl
+                imageUrl: match[2] && match[2].indexOf("data:image") !== 0 ? match[2] : ""
             });
         }
     }
+    
     return list;
 }
 
 function parseHasNextPage(html) {
-    return /next[^>]*>[Nn]ext<\/a>/.test(safeString(html)) ||
-           /href="[^"]*?\?[^"]*?page=\d+"/.test(safeString(html));
+    const htmlStr = safeString(html);
+    return /id="unext"[^>]*href=/i.test(htmlStr) ||
+           /id="dnext"[^>]*href=/i.test(htmlStr);
 }
 
 class DefaultExtension extends MProvider {
@@ -107,9 +135,8 @@ class DefaultExtension extends MProvider {
         super();
         this.clientConfig = {
             verifyCertificates: false,
-            timeout: 10
+            timeout: 15
         };
-        this.currentBase = EHENTAI_BASE;
     }
 
     get supportsLatest() {
@@ -119,7 +146,7 @@ class DefaultExtension extends MProvider {
     getHeaders() {
         return {
             "User-Agent": EHENTAI_USER_AGENT,
-            "Referer": this.currentBase + "/",
+            "Referer": EHENTAI_BASE + "/",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9"
         };
@@ -127,15 +154,6 @@ class DefaultExtension extends MProvider {
 
     logError(method, error) {
         console.log("[e-hentai] " + method + " error: " + stringifyError(error));
-    }
-
-    // Add English language filter to search query
-    addEnglishFilter(query) {
-        const baseQuery = safeString(query);
-        if (baseQuery) {
-            return baseQuery + " language:english";
-        }
-        return "language:english";
     }
 
     async requestHtml(url) {
@@ -155,9 +173,11 @@ class DefaultExtension extends MProvider {
         return body;
     }
 
-    async requestJson(body) {
+    async requestJson(bodyStr) {
         const client = new Client(this.clientConfig);
-        const response = await client.post(EHENTAI_API, this.getHeaders(), body);
+        const headers = this.getHeaders();
+        headers["Content-Type"] = "application/json";
+        const response = await client.post(EHENTAI_API, headers, bodyStr);
         if (isCloudflareBlocked(response)) {
             throw new Error("Cloudflare blocked for API");
         }
@@ -165,21 +185,27 @@ class DefaultExtension extends MProvider {
         if (statusCode >= 400) {
             throw new Error("API request failed with status " + statusCode);
         }
-        const responseBody = safeString(response.body);
-        if (!responseBody) {
-            throw new Error("Empty API response");
-        }
-        return parseJsonSafe(responseBody, null);
+        return parseJsonSafe(safeString(response.body), null);
+    }
+
+    // Add language:english filter to queries
+    buildSearchQuery(query) {
+        const q = safeString(query).trim();
+        return q ? q + " language:english" : "language:english";
     }
 
     buildListUrl(mode, query, page) {
-        const pageValue = Math.max(0, parseInt(page, 10) - 1 || 0); // E-Hentai uses 0-indexed pages
-        const englishQuery = this.addEnglishFilter(query);
+        // E-Hentai uses 0-indexed pagination via ?page=N
+        const pageValue = Math.max(0, (parseInt(page, 10) || 1) - 1);
+        const searchQuery = this.buildSearchQuery(query);
+        const qParam = "f_search=" + encodeURIComponent(searchQuery);
+        const pageParam = pageValue > 0 ? "&page=" + pageValue : "";
+        
         if (mode === "popular") {
-            // E-Hentai popular sorting via advanced search
-            return EHENTAI_BASE + "/?page=" + pageValue + "&f_search=" + encodeURIComponent(englishQuery) + "&f_srdd=2";
+            // Sort by rating (f_srdd=2 = min rating 2 stars, ensures quality)
+            return EHENTAI_BASE + "/?" + qParam + pageParam + "&f_sr=on&f_srdd=2";
         }
-        return EHENTAI_BASE + "/?page=" + pageValue + "&f_search=" + encodeURIComponent(englishQuery);
+        return EHENTAI_BASE + "/?" + qParam + pageParam;
     }
 
     async fetchList(mode, query, page) {
@@ -221,15 +247,12 @@ class DefaultExtension extends MProvider {
 
     async getDetail(url) {
         try {
-            const galleryInfo = extractGalleryIdAndToken(url);
-            if (!galleryInfo) {
-                throw new Error("Invalid gallery URL: " + url);
-            }
+            const info = extractGidToken(url);
+            if (!info) throw new Error("Invalid gallery URL: " + url);
             
-            // Use E-Hentai JSON API for metadata
             const apiBody = JSON.stringify({
                 method: "gdata",
-                gidlist: [[galleryInfo.gid, galleryInfo.token]],
+                gidlist: [[info.gid, info.token]],
                 namespace: 1
             });
             
@@ -239,76 +262,52 @@ class DefaultExtension extends MProvider {
             }
             
             const meta = data.gmetadata[0];
+            const tags = Array.isArray(meta.tags) ? meta.tags : [];
             
-            // Check if English
-            const tags = meta.tags || [];
-            const isEnglish = tags.some(tag => tag === "language:english" || tag === "language:English");
-            if (!isEnglish) {
-                console.log("[e-hentai] Warning: Gallery may not be English");
-            }
-            
-            // Parse tags
             const artists = [];
             const parodies = [];
             const characters = [];
             const generalTags = [];
             
-            for (const tag of tags) {
-                if (tag.startsWith("artist:")) {
-                    artists.push(tag.replace("artist:", ""));
-                } else if (tag.startsWith("parody:")) {
-                    parodies.push(tag.replace("parody:", ""));
-                } else if (tag.startsWith("character:")) {
-                    characters.push(tag.replace("character:", ""));
+            for (let i = 0; i < tags.length; i++) {
+                const tag = safeString(tags[i]);
+                if (tag.indexOf("artist:") === 0) {
+                    artists.push(tag.substring(7));
+                } else if (tag.indexOf("parody:") === 0) {
+                    parodies.push(tag.substring(7));
+                } else if (tag.indexOf("character:") === 0) {
+                    characters.push(tag.substring(10));
                 } else {
                     generalTags.push(tag);
                 }
             }
             
-            const author = artists.join(", ") || meta.uploader || "Unknown";
-            const genre = tags;
-            
-            // Build description
-            const lines = [];
-            if (meta.title_jpn) {
-                lines.push("Japanese: " + meta.title_jpn);
-            }
-            if (meta.category) {
-                lines.push("Category: " + meta.category);
-            }
-            if (meta.filecount) {
-                lines.push("Pages: " + meta.filecount);
-            }
-            if (meta.rating) {
-                lines.push("Rating: " + meta.rating + "/5");
-            }
-            if (parodies.length > 0) {
-                lines.push("Parodies: " + parodies.join(", "));
-            }
-            if (artists.length > 0) {
-                lines.push("Artists: " + artists.join(", "));
-            }
-            if (characters.length > 0) {
-                lines.push("Characters: " + characters.join(", "));
-            }
-            if (generalTags.length > 0) {
-                lines.push("Tags: " + generalTags.slice(0, 15).join(", "));
-            }
-            
-            const description = lines.join("\n");
+            const author = artists.length > 0 ? artists.join(", ") : safeString(meta.uploader);
             const pageCount = parseInt(meta.filecount, 10) || 0;
             
+            const lines = [];
+            if (meta.title_jpn) lines.push("Japanese: " + meta.title_jpn);
+            if (meta.category) lines.push("Category: " + meta.category);
+            if (pageCount) lines.push("Pages: " + pageCount);
+            if (meta.rating) lines.push("Rating: " + meta.rating + "/5");
+            if (parodies.length > 0) lines.push("Parodies: " + parodies.join(", "));
+            if (artists.length > 0) lines.push("Artists: " + artists.join(", "));
+            if (characters.length > 0) lines.push("Characters: " + characters.join(", "));
+            if (generalTags.length > 0) lines.push("Tags: " + generalTags.slice(0, 20).join(", "));
+            
             return {
-                name: meta.title || "Unknown",
-                link: url,
-                imageUrl: meta.thumb || "",
-                description: description,
+                name: safeString(meta.title) || "Unknown",
+                link: info.url,
+                imageUrl: safeString(meta.thumb),
+                description: lines.join("\n"),
                 author: author,
-                genre: genre,
+                artist: artists.join(", "),
+                genre: tags,
                 status: 1,
                 chapters: [{
                     name: pageCount > 0 ? "Read (" + pageCount + " pages)" : "Read",
-                    url: url,
+                    url: info.url,
+                    scanlator: "",
                     dateUpload: meta.posted ? String(parseInt(meta.posted, 10) * 1000) : ""
                 }]
             };
@@ -320,50 +319,55 @@ class DefaultExtension extends MProvider {
 
     async getPageList(url) {
         try {
-            // E-Hentai pages require HTML scraping from the gallery pages
-            // First get the gallery page to find the first page link
-            const galleryInfo = extractGalleryIdAndToken(url);
-            if (!galleryInfo) {
-                throw new Error("Invalid gallery URL: " + url);
-            }
+            const info = extractGidToken(url);
+            if (!info) throw new Error("Invalid gallery URL: " + url);
             
-            const html = await this.requestHtml(url);
+            const pageImages = [];
+            let currentPage = 0;
+            const seenPageUrls = {};
             
-            // Extract page links from the gallery page
-            const pageLinks = [];
-            const seen = {};
-            
-            // Pattern for page links in E-Hentai
-            const pattern = /href="(https?:\/\/e-hentai\.org\/s\/[a-f0-9]+\/\d+-\d+)"/gi;
-            let match;
-            while ((match = pattern.exec(html)) !== null) {
-                const pageUrl = match[1];
-                if (!seen[pageUrl]) {
-                    seen[pageUrl] = true;
-                    pageLinks.push(pageUrl);
-                }
-            }
-            
-            // If we found page links, fetch each page to get image URLs
-            const pages = [];
-            for (const pageUrl of pageLinks) {
-                try {
-                    const pageHtml = await this.requestHtml(pageUrl);
-                    // Extract image URL from the page
-                    const imgMatch = pageHtml.match(/<img[^>]+id="img"[^>]+src="([^"]+)"/i);
-                    if (imgMatch) {
-                        pages.push(imgMatch[1]);
+            // E-Hentai gallery shows thumbnails and links to /s/hash/gid-n pages
+            // Iterate gallery pagination to collect all page links
+            while (currentPage < 20) { // safety limit
+                const galleryUrl = info.url + (currentPage > 0 ? "?p=" + currentPage : "");
+                const html = await this.requestHtml(galleryUrl);
+                
+                // Extract page links: /s/{hash}/{gid}-{pagenum}
+                const pagePattern = new RegExp("href=\"(https?://e-hentai\\.org/s/[a-f0-9]+/" + info.gid + "-\\d+)\"", "gi");
+                const pageLinks = [];
+                let m;
+                while ((m = pagePattern.exec(html)) !== null) {
+                    if (!seenPageUrls[m[1]]) {
+                        seenPageUrls[m[1]] = true;
+                        pageLinks.push(m[1]);
                     }
-                } catch (e) {
-                    console.log("[e-hentai] Failed to fetch page: " + pageUrl);
                 }
+                
+                if (pageLinks.length === 0) break;
+                
+                // Fetch each page to extract full image URL
+                for (let i = 0; i < pageLinks.length; i++) {
+                    try {
+                        const pageHtml = await this.requestHtml(pageLinks[i]);
+                        const imgUrl = firstMatch(pageHtml, /<img[^>]+id="img"[^>]+src="([^"]+)"/i);
+                        if (imgUrl) {
+                            pageImages.push(imgUrl);
+                        }
+                    } catch (e) {
+                        console.log("[e-hentai] page fetch failed: " + pageLinks[i]);
+                    }
+                }
+                
+                // Check if there's a next gallery page
+                const nextPagePattern = new RegExp("href=\"[^\"]*?\\?p=" + (currentPage + 1) + "\"", "i");
+                if (!nextPagePattern.test(html)) break;
+                currentPage++;
             }
             
-            if (pages.length === 0) {
+            if (pageImages.length === 0) {
                 throw new Error("Could not extract page images");
             }
-            
-            return pages;
+            return pageImages;
         } catch (error) {
             this.logError("getPageList", error);
             throw error;
