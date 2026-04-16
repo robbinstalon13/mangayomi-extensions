@@ -51,6 +51,129 @@ function extractGalleryId(url) {
     return m ? m[1] : "";
 }
 
+// RC4 decryption for HentaiNexus encrypted image data
+// Algorithm: Base64 decode -> XOR with pathname (first 64 chars) -> RC4 decrypt
+function base64Decode(str) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const lookup = {};
+    for (let i = 0; i < chars.length; i++) {
+        lookup[chars.charAt(i)] = i;
+    }
+    const len = str.length;
+    const result = [];
+    let i = 0;
+    while (i < len) {
+        const b1 = lookup[str.charAt(i++)] || 0;
+        const b2 = lookup[str.charAt(i++)] || 0;
+        const b3 = lookup[str.charAt(i++)] || 0;
+        const b4 = lookup[str.charAt(i++)] || 0;
+        const a = (b1 << 2) | (b2 >> 4);
+        const b = ((b2 & 0x0f) << 4) | (b3 >> 2);
+        const c = ((b3 & 0x03) << 6) | b4;
+        result.push(a);
+        if (b3 !== 64) result.push(b);
+        if (b4 !== 64) result.push(c);
+    }
+    return result;
+}
+
+function rc4Decrypt(data, key) {
+    // Key Scheduling Algorithm (KSA)
+    const S = [];
+    for (let i = 0; i < 256; i++) {
+        S[i] = i;
+    }
+    let j = 0;
+    for (let i = 0; i < 256; i++) {
+        j = (j + S[i] + key[i % key.length]) % 256;
+        const temp = S[i];
+        S[i] = S[j];
+        S[j] = temp;
+    }
+    
+    // Pseudo-Random Generation Algorithm (PRGA)
+    let i = 0;
+    j = 0;
+    const result = [];
+    for (let k = 0; k < data.length; k++) {
+        i = (i + 1) % 256;
+        j = (j + S[i]) % 256;
+        const temp = S[i];
+        S[i] = S[j];
+        S[j] = temp;
+        const K = S[(S[i] + S[j]) % 256];
+        result.push(data[k] ^ K);
+    }
+    return result;
+}
+
+function decryptHentaiNexusData(encryptedBase64, pathname) {
+    try {
+        // Base64 decode
+        const encrypted = base64Decode(encryptedBase64);
+        
+        // XOR with pathname (first min(pathname.length, 64) characters)
+        const pathChars = pathname.split("");
+        const xorLen = Math.min(pathChars.length, 64);
+        const xored = [];
+        for (let i = 0; i < encrypted.length; i++) {
+            if (i < xorLen) {
+                xored.push(encrypted[i] ^ pathChars[i].charCodeAt(0));
+            } else {
+                xored.push(encrypted[i]);
+            }
+        }
+        
+        // The first 64 bytes (after XOR) become the RC4 key
+        // The rest is the ciphertext
+        const key = xored.slice(0, 64);
+        const ciphertext = xored.slice(64);
+        
+        // RC4 decrypt
+        const decrypted = rc4Decrypt(ciphertext, key);
+        
+        // Convert to string
+        let result = "";
+        for (let i = 0; i < decrypted.length; i++) {
+            result += String.fromCharCode(decrypted[i]);
+        }
+        return result;
+    } catch (e) {
+        console.log("[hentainexus] Decryption failed: " + e);
+        return "";
+    }
+}
+
+function extractImageUrlsFromDecrypted(data) {
+    // The decrypted data should be a JSON array of image info
+    // Format: [{"id":1,"url":"...","w":1234,"h":5678},...]
+    const urls = [];
+    try {
+        // Try to find JSON array
+        const match = data.match(/\[[\s\S]*\]/);
+        if (match) {
+            const jsonStr = match[0];
+            const parsed = JSON.parse(jsonStr);
+            if (Array.isArray(parsed)) {
+                for (let i = 0; i < parsed.length; i++) {
+                    const item = parsed[i];
+                    if (item && item.url) {
+                        urls.push(item.url);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Fallback: try to find image URLs directly in the string
+        const urlPattern = /https:\/\/images\.hentainexus\.com\/v2\/[^\s"'<>]+/gi;
+        let m;
+        while ((m = urlPattern.exec(data)) !== null) {
+            urls.push(m[0]);
+        }
+    }
+    return urls;
+}
+
 // Parse HentaiNexus gallery cards
 // Structure: <a href="/view/ID">
 //   <div class="card">
@@ -322,46 +445,49 @@ class DefaultExtension extends MProvider {
             const id = extractGalleryId(url);
             if (!id) throw new Error("Invalid gallery URL: " + url);
             
-            // HentaiNexus images use encrypted URLs decoded client-side in /read/ID
-            // Try pattern: replace .thumb.jpg with just the base jpg on thumbnail URLs
-            const fullUrl = url.indexOf("http") === 0 ? url : HENTAINEXUS_BASE + url;
-            const html = await this.requestHtml(fullUrl);
+            const readUrl = HENTAINEXUS_BASE + "/read/" + id;
+            const readHtml = await this.requestHtml(readUrl);
             
-            // Collect unique image hashes from the view page
-            const pages = [];
-            const seen = {};
-            const pattern = /src="(https:\/\/images\.hentainexus\.com\/v2\/[a-f0-9]+\/(\d+)\.jpg)(?:\.thumb\.jpg)?"/gi;
-            let match;
-            while ((match = pattern.exec(html)) !== null) {
-                const fullImgUrl = match[1];
-                if (!seen[fullImgUrl]) {
-                    seen[fullImgUrl] = true;
-                    pages.push(fullImgUrl);
+            // Try to find encrypted initReader data
+            const encryptedMatch = readHtml.match(/initReader\("([A-Za-z0-9+/=]+)"/);
+            if (encryptedMatch && encryptedMatch[1]) {
+                const encrypted = encryptedMatch[1];
+                const pathname = "/read/" + id;
+                
+                // Decrypt the data
+                const decrypted = decryptHentaiNexusData(encrypted, pathname);
+                if (decrypted) {
+                    const imageUrls = extractImageUrlsFromDecrypted(decrypted);
+                    if (imageUrls.length > 0) {
+                        // Make URLs absolute
+                        const pages = [];
+                        for (let i = 0; i < imageUrls.length; i++) {
+                            let u = imageUrls[i];
+                            if (u.indexOf("http") !== 0) {
+                                u = "https:" + u;
+                            }
+                            pages.push(u);
+                        }
+                        return pages;
+                    }
                 }
             }
             
-            // If only 1 image found from view page (just cover), try fetching /read/ page
-            if (pages.length <= 1) {
-                try {
-                    const readUrl = HENTAINEXUS_BASE + "/read/" + id;
-                    const readHtml = await this.requestHtml(readUrl);
-                    
-                    // The read page has initReader with encrypted data - try to find image URLs
-                    const readPattern = /(?:src|data-src)="(https:\/\/images\.hentainexus\.com\/v2\/[a-f0-9]+\/\d+\.[a-z]+)(?:\.thumb\.\w+)?"/gi;
-                    while ((match = readPattern.exec(readHtml)) !== null) {
-                        const u = match[1];
-                        if (!seen[u]) {
-                            seen[u] = true;
-                            pages.push(u);
-                        }
-                    }
-                } catch (e) {
-                    console.log("[hentainexus] read page fetch failed");
+            // Fallback: try to extract image URLs from the HTML directly
+            const pages = [];
+            const seen = {};
+            const fallbackPattern = /(?:src|data-src)="(https:\/\/images\.hentainexus\.com\/v2\/[a-f0-9]+\/\d+\.jpg)/gi;
+            let match;
+            while ((match = fallbackPattern.exec(readHtml)) !== null) {
+                const u = match[1];
+                if (!seen[u]) {
+                    seen[u] = true;
+                    pages.push(u);
                 }
             }
             
             if (pages.length === 0) {
-                throw new Error("Could not extract page images - site uses encrypted image URLs. Try the WebView option.");
+                throw new Error("Could not extract page images. The site encryption may have changed.");
             }
             return pages;
         } catch (error) {
