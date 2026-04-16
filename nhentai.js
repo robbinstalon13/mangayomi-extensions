@@ -585,7 +585,9 @@ class DefaultExtension extends MProvider {
             if (f && f.type === type) {
                 // SelectFilter has values array, state is index
                 if (typeof f.state === "number" && Array.isArray(f.values) && f.values[f.state]) {
-                    return safeString(f.values[f.state].value || "");
+                    const val = safeString(f.values[f.state].value || "");
+                    console.log("[nhentai] Filter " + type + " state=" + f.state + " value=" + val);
+                    return val;
                 }
                 if (Array.isArray(f.values) && f.values.length > 0) {
                     return safeString(f.values[0].value || f.values[0] || "");
@@ -619,10 +621,14 @@ class DefaultExtension extends MProvider {
             
             const useSort = sort === "popular" ? "&sort=popular" : "";
             
+            let result;
             if (domain.key === "xxx") {
-                return "/search/?key=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
+                result = "/search/?key=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
+            } else {
+                result = "/search?q=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
             }
-            return "/search?q=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
+            console.log("[nhentai] Search URL: " + result);
+            return result;
         }
         
         // No filters - use default English browsing
