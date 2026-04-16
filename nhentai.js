@@ -510,24 +510,31 @@ class DefaultExtension extends MProvider {
 
     buildListPath(domain, mode, query, page) {
         const pageValue = Math.max(1, parseInt(page, 10) || 1);
-        // Add language:english filter to all queries
-        const englishQuery = safeString(query) ? safeString(query) + " language:english" : "language:english";
+        const hasQuery = !!safeString(query).trim();
+        
         if (domain.key === "xxx") {
-            const encoded = encodeURIComponent(englishQuery);
-            if (mode === "popular") {
-                return "/search/?key=" + encoded + "&sort=popular&page=" + pageValue;
+            // nhentai.xxx - use /language/english/ paths for English-only browsing
+            if (mode === "search" && hasQuery) {
+                // For search, append language:english to query (best effort)
+                const encoded = encodeURIComponent(safeString(query) + " language:english");
+                return "/search/?key=" + encoded + "&page=" + pageValue;
             }
-            return "/search/?key=" + encoded + "&page=" + pageValue;
+            if (mode === "popular") {
+                return "/language/english/popular/" + (pageValue > 1 ? "?page=" + pageValue : "");
+            }
+            // Latest English
+            return "/language/english/" + (pageValue > 1 ? "?page=" + pageValue : "");
         }
-        // For nhentai.to domain
+        
+        // nhentai.to - use /language/english paths
+        if (mode === "search" && hasQuery) {
+            return "/search?q=" + encodeURIComponent(safeString(query) + " language:english") + "&page=" + pageValue;
+        }
         if (mode === "popular") {
-            return "/search?q=" + encodeURIComponent(englishQuery) + "&sort=popular&page=" + pageValue;
+            return "/language/english/popular" + (pageValue > 1 ? "?page=" + pageValue : "");
         }
-        if (mode === "search") {
-            return "/search?q=" + encodeURIComponent(englishQuery) + "&page=" + pageValue;
-        }
-        // Latest updates with English filter
-        return "/search?q=" + encodeURIComponent("language:english") + "&page=" + pageValue;
+        // Latest English
+        return "/language/english" + (pageValue > 1 ? "?page=" + pageValue : "");
     }
 
     parseListResponse(html, page, domain) {

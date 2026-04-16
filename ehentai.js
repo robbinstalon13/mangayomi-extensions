@@ -102,7 +102,7 @@ function parseHasNextPage(html) {
            /href="[^"]*?\?[^"]*?page=\d+"/.test(safeString(html));
 }
 
-class EHentai extends MProvider {
+class DefaultExtension extends MProvider {
     constructor() {
         super();
         this.clientConfig = {

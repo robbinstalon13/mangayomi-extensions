@@ -190,7 +190,7 @@ function parseGalleryDetail(html) {
     };
 }
 
-class HentaiFox extends MProvider {
+class DefaultExtension extends MProvider {
     constructor() {
         super();
         this.clientConfig = {

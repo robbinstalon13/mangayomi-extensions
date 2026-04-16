@@ -179,7 +179,7 @@ function parseGalleryDetail(html) {
     };
 }
 
-class HentaiNexus extends MProvider {
+class DefaultExtension extends MProvider {
     constructor() {
         super();
         this.clientConfig = {
