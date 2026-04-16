@@ -62,7 +62,9 @@ function isCloudflareBlocked(response) {
 function extractGidToken(url) {
     const m = safeString(url).match(/\/g\/(\d+)\/([a-f0-9]+)/i);
     if (!m) return null;
-    return { gid: parseInt(m[1], 10), token: m[2], url: m[0] };
+    // Return full URL with base, not just the path
+    const fullUrl = EHENTAI_BASE + m[0];
+    return { gid: parseInt(m[1], 10), token: m[2], url: m[0], fullUrl: fullUrl };
 }
 
 // Parse E-Hentai gallery list rows
@@ -360,7 +362,7 @@ class DefaultExtension extends MProvider {
             // E-Hentai gallery shows thumbnails and links to /s/hash/gid-n pages
             // Iterate gallery pagination to collect all page links
             while (currentPage < 20) { // safety limit
-                const galleryUrl = info.url + (currentPage > 0 ? "?p=" + currentPage : "");
+                const galleryUrl = info.fullUrl + (currentPage > 0 ? "?p=" + currentPage : "");
                 const html = await this.requestHtml(galleryUrl);
                 
                 // Extract page links: /s/{hash}/{gid}-{pagenum}

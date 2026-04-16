@@ -176,10 +176,11 @@ function parseGalleryDetail(html, url) {
     }
     
     // Extract gallery_id (internal CDN ID) for building image URLs
-    const galleryId = firstMatch(htmlStr, /id="gallery_id"\s+value="(\d+)"/i) ||
-                      firstMatch(htmlStr, /name="gallery_id"[^>]+value="(\d+)"/i);
-    const dirValue = firstMatch(htmlStr, /name="dir"[^>]+value="(\w+)"/i) ||
-                     firstMatch(htmlStr, /value="(\d{3})"\s*\/>\s*<input[^>]+gallery_id/i);
+    const galleryId = firstMatch(htmlStr, /id="load_id"\s+value="(\d+)"/i) ||
+                      firstMatch(htmlStr, /name="load_id"[^>]+value="(\d+)"/i) ||
+                      firstMatch(htmlStr, /id="gallery_id"\s+value="(\d+)"/i);
+    const dirValue = firstMatch(htmlStr, /name="load_dir"[^>]+value="(\w+)"/i) ||
+                     firstMatch(htmlStr, /id="load_dir"[^>]+value="(\w+)"/i);
     
     // Extract g_th for image type info
     const gThMatch = htmlStr.match(/g_th\s*=\s*\$\.parseJSON\('([\s\S]*?)'\)/i);
