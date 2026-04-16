@@ -176,11 +176,20 @@ function parseGalleryDetail(html, url) {
     }
     
     // Extract gallery_id (internal CDN ID) for building image URLs
-    const galleryId = firstMatch(htmlStr, /id="load_id"\s+value="(\d+)"/i) ||
-                      firstMatch(htmlStr, /name="load_id"[^>]+value="(\d+)"/i) ||
-                      firstMatch(htmlStr, /id="gallery_id"\s+value="(\d+)"/i);
-    const dirValue = firstMatch(htmlStr, /name="load_dir"[^>]+value="(\w+)"/i) ||
-                     firstMatch(htmlStr, /id="load_dir"[^>]+value="(\w+)"/i);
+    let galleryId = firstMatch(htmlStr, /id="load_id"\s+value="(\d+)"/i) ||
+                    firstMatch(htmlStr, /name="load_id"[^>]+value="(\d+)"/i) ||
+                    firstMatch(htmlStr, /id="gallery_id"\s+value="(\d+)"/i);
+    let dirValue = firstMatch(htmlStr, /name="load_dir"[^>]+value="(\w+)"/i) ||
+                   firstMatch(htmlStr, /id="load_dir"[^>]+value="(\w+)"/i);
+    
+    // Fallback: derive from cover URL pattern https://{srv}.hentaifox.com/{dir}/{loadId}/cover.{ext}
+    if ((!galleryId || !dirValue) && imageUrl) {
+        const coverMatch = imageUrl.match(/https:\/\/i\d?\.hentaifox\.com\/(\w+)\/(\d+)\//i);
+        if (coverMatch) {
+            if (!dirValue) dirValue = coverMatch[1];
+            if (!galleryId) galleryId = coverMatch[2];
+        }
+    }
     
     // Extract g_th for image type info
     const gThMatch = htmlStr.match(/g_th\s*=\s*\$\.parseJSON\('([\s\S]*?)'\)/i);
@@ -378,17 +387,22 @@ class DefaultExtension extends MProvider {
             const html = await this.requestHtml(fullUrl);
             const detail = parseGalleryDetail(html, url);
             
-            if (!detail.galleryId || !detail.dir || !detail.gTh) {
-                throw new Error("Could not extract gallery image data");
+            if (!detail.galleryId || !detail.dir) {
+                throw new Error("Could not extract gallery image data (id=" + detail.galleryId + ", dir=" + detail.dir + ")");
             }
             
             const pages = [];
-            const totalPages = detail.pageCount || Object.keys(detail.gTh).length;
+            const gTh = detail.gTh || {};
+            const totalPages = detail.pageCount || Object.keys(gTh).length;
+            if (totalPages === 0) {
+                throw new Error("Gallery has no pages");
+            }
             const server = detail.server || "i";
             
             for (let i = 1; i <= totalPages; i++) {
-                const typeInfo = detail.gTh[String(i)];
-                const ext = getImageExtension(typeInfo);
+                // If g_th map is present, use it for type info; otherwise default to jpg
+                const typeInfo = gTh[String(i)];
+                const ext = typeInfo ? getImageExtension(typeInfo) : "jpg";
                 pages.push("https://" + server + ".hentaifox.com/" + detail.dir + "/" + detail.galleryId + "/" + i + "." + ext);
             }
             

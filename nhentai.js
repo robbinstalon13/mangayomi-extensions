@@ -71,6 +71,31 @@ const NHENTAI_TAGS = [
     { name: "Twintails", value: "twintails" }
 ];
 
+// Popular/Western artists on nhentai.xxx (verified to exist)
+const NHENTAI_ARTISTS = [
+    { name: "Any", value: "" },
+    { name: "JDseal (W)", value: "jdseal" },
+    { name: "Cyberklaw (W)", value: "cyberklaw" },
+    { name: "Incognitymous (W)", value: "incognitymous" },
+    { name: "Romulo Mancin (W)", value: "romulo-mancin" },
+    { name: "Rabies T Lagomorph (W)", value: "rabies-t-lagomorph" },
+    { name: "Erogakure (W)", value: "erogakure" },
+    { name: "Locofuria (W)", value: "locofuria" },
+    { name: "Sapphirefoxx (W)", value: "sapphirefoxx" },
+    { name: "Creedo (W)", value: "creedo" },
+    { name: "Dave Cheung (W)", value: "dave-cheung" },
+    { name: "Llamaboy (W)", value: "llamaboy" },
+    { name: "Mainlinemojo (W)", value: "mainlinemojo" },
+    { name: "Mangrowing (W)", value: "mangrowing" },
+    { name: "JAB (W)", value: "jab" },
+    { name: "Hachijuu (W)", value: "hachijuu" },
+    { name: "Kogeikun", value: "kogeikun" },
+    { name: "Seiren", value: "seiren" },
+    { name: "Amarsroshta", value: "amarsroshta" },
+    { name: "Quotefox (W)", value: "quotefox" },
+    { name: "Meyto", value: "meyto" }
+];
+
 const NHENTAI_SORT_OPTIONS = [
     { name: "Latest", value: "latest" },
     { name: "Popular", value: "popular" }
@@ -583,11 +608,8 @@ class DefaultExtension extends MProvider {
         for (let i = 0; i < filters.length; i++) {
             const f = filters[i];
             if (f && f.type === type) {
-                // SelectFilter has values array, state is index
                 if (typeof f.state === "number" && Array.isArray(f.values) && f.values[f.state]) {
-                    const val = safeString(f.values[f.state].value || "");
-                    console.log("[nhentai] Filter " + type + " state=" + f.state + " value=" + val);
-                    return val;
+                    return safeString(f.values[f.state].value || "");
                 }
                 if (Array.isArray(f.values) && f.values.length > 0) {
                     return safeString(f.values[0].value || f.values[0] || "");
@@ -605,47 +627,56 @@ class DefaultExtension extends MProvider {
         const parody = this.extractFilterValue(filters, "parody");
         const category = this.extractFilterValue(filters, "category");
         const tag = this.extractFilterValue(filters, "tag");
+        const artist = this.extractFilterValue(filters, "artist");
         const sort = this.extractFilterValue(filters, "sort");
-        
-        // If query or ANY filter is active, use search endpoint with combined query
-        const filterActive = parody || category || tag || hasQuery;
-        
-        if (filterActive) {
-            const parts = [];
-            if (hasQuery) parts.push(safeString(query).trim());
-            if (parody) parts.push("parody:" + parody.replace(/-/g, "+"));
-            if (category) parts.push("category:" + category.replace(/-/g, "+"));
-            if (tag) parts.push("tag:" + tag.replace(/-/g, "+"));
-            parts.push("language:english");
-            const combinedQuery = parts.join(" ");
-            
-            const useSort = sort === "popular" ? "&sort=popular" : "";
-            
-            let result;
-            if (domain.key === "xxx") {
-                result = "/search/?key=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
-            } else {
-                result = "/search?q=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
-            }
-            console.log("[nhentai] Search URL: " + result);
-            return result;
-        }
-        
-        // No filters - use default English browsing
         const wantPopular = mode === "popular" || sort === "popular";
         
+        // Priority: text query > parody > category > tag > artist > default
+        // Direct path filters use /{type}/{slug}/ which returns correct English-only scoped results.
+        // nhentai.xxx uses trailing slash before query string; nhentai.to omits it.
+        const slashBeforeQuery = domain.key === "xxx" ? "/" : "";
+        const popularSegment = wantPopular ? "popular" + slashBeforeQuery : "";
+        const pageSuffix = pageValue > 1 ? "?page=" + pageValue : "";
+        
+        // Text search overrides other filters (search is the only way to combine keywords)
+        if (hasQuery) {
+            const q = safeString(query).trim();
+            if (domain.key === "xxx") {
+                return "/search/?key=" + encodeURIComponent(q) + "&page=" + pageValue + (wantPopular ? "&sort=popular" : "");
+            }
+            return "/search?q=" + encodeURIComponent(q) + "&page=" + pageValue + (wantPopular ? "&sort=popular" : "");
+        }
+        
+        // Build direct path for exactly one filter (priority order)
+        let basePath = "";
+        if (parody) {
+            basePath = "/parody/" + parody + "/";
+        } else if (category) {
+            basePath = "/category/" + category + "/";
+        } else if (tag) {
+            basePath = "/tag/" + tag + "/";
+        } else if (artist) {
+            basePath = "/artist/" + artist + "/";
+        }
+        
+        if (basePath) {
+            // Direct path + optional popular + optional page param
+            return basePath + popularSegment + pageSuffix;
+        }
+        
+        // No filters - default English browsing
         if (domain.key === "xxx") {
             if (wantPopular) {
-                return "/language/english/popular/" + (pageValue > 1 ? "?page=" + pageValue : "");
+                return "/language/english/popular/" + pageSuffix;
             }
-            return "/language/english/" + (pageValue > 1 ? "?page=" + pageValue : "");
+            return "/language/english/" + pageSuffix;
         }
         
         // nhentai.to
         if (wantPopular) {
-            return "/language/english/popular" + (pageValue > 1 ? "?page=" + pageValue : "");
+            return "/language/english/popular" + pageSuffix;
         }
-        return "/language/english" + (pageValue > 1 ? "?page=" + pageValue : "");
+        return "/language/english" + pageSuffix;
     }
 
     parseListResponse(html, page, domain) {
@@ -788,6 +819,12 @@ class DefaultExtension extends MProvider {
                 type: "tag",
                 name: "Tag",
                 values: NHENTAI_TAGS.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
+            },
+            {
+                type_name: "SelectFilter",
+                type: "artist",
+                name: "Artist (W = Western)",
+                values: NHENTAI_ARTISTS.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
             }
         ];
     }
