@@ -510,20 +510,24 @@ class DefaultExtension extends MProvider {
 
     buildListPath(domain, mode, query, page) {
         const pageValue = Math.max(1, parseInt(page, 10) || 1);
+        // Add language:english filter to all queries
+        const englishQuery = safeString(query) ? safeString(query) + " language:english" : "language:english";
         if (domain.key === "xxx") {
-            const encoded = encodeURIComponent(safeString(query));
+            const encoded = encodeURIComponent(englishQuery);
             if (mode === "popular") {
                 return "/search/?key=" + encoded + "&sort=popular&page=" + pageValue;
             }
             return "/search/?key=" + encoded + "&page=" + pageValue;
         }
+        // For nhentai.to domain
         if (mode === "popular") {
-            return "/popular?page=" + pageValue;
+            return "/search?q=" + encodeURIComponent(englishQuery) + "&sort=popular&page=" + pageValue;
         }
         if (mode === "search") {
-            return "/search?q=" + encodeURIComponent(safeString(query)) + "&page=" + pageValue;
+            return "/search?q=" + encodeURIComponent(englishQuery) + "&page=" + pageValue;
         }
-        return pageValue <= 1 ? "/" : "/?page=" + pageValue;
+        // Latest updates with English filter
+        return "/search?q=" + encodeURIComponent("language:english") + "&page=" + pageValue;
     }
 
     parseListResponse(html, page, domain) {
