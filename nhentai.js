@@ -6,6 +6,76 @@ const NHENTAI_MIRRORS = [
 const NHENTAI_USER_AGENT =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
+// Popular parodies - nhentai uses these URL slugs
+const NHENTAI_PARODIES = [
+    { name: "Any", value: "" },
+    { name: "Pokemon", value: "pokemon" },
+    { name: "Naruto", value: "naruto" },
+    { name: "My Hero Academia", value: "boku-no-hero-academia" },
+    { name: "One Piece", value: "one-piece" },
+    { name: "Dragon Ball", value: "dragon-ball" },
+    { name: "Fate Grand Order", value: "fate-grand-order" },
+    { name: "Genshin Impact", value: "genshin-impact" },
+    { name: "Blue Archive", value: "blue-archive" },
+    { name: "Touhou Project", value: "touhou-project" },
+    { name: "Sailor Moon", value: "sailor-moon" },
+    { name: "Attack on Titan", value: "shingeki-no-kyojin" },
+    { name: "Demon Slayer", value: "kimetsu-no-yaiba" },
+    { name: "Sword Art Online", value: "sword-art-online" },
+    { name: "Hololive", value: "hololive" },
+    { name: "Love Live", value: "love-live" },
+    { name: "Kantai Collection", value: "kantai-collection" },
+    { name: "Idolmaster", value: "the-idolm-ster" },
+    { name: "Neon Genesis Evangelion", value: "neon-genesis-evangelion" },
+    { name: "Overwatch", value: "overwatch" },
+    { name: "Final Fantasy", value: "final-fantasy-vii" },
+    { name: "Zelda", value: "the-legend-of-zelda" }
+];
+
+// Common tags/categories
+const NHENTAI_CATEGORIES = [
+    { name: "Any", value: "" },
+    { name: "Manga", value: "manga" },
+    { name: "Doujinshi", value: "doujinshi" },
+    { name: "Artist CG", value: "artist-cg" },
+    { name: "Game CG", value: "game-cg" },
+    { name: "Western", value: "western" },
+    { name: "Non-H", value: "non-h" },
+    { name: "Image Set", value: "image-set" }
+];
+
+// Popular tags
+const NHENTAI_TAGS = [
+    { name: "Any", value: "" },
+    { name: "Vanilla", value: "vanilla" },
+    { name: "Romance", value: "romance" },
+    { name: "Big Breasts", value: "big-breasts" },
+    { name: "Big Ass", value: "big-ass" },
+    { name: "Nakadashi", value: "nakadashi" },
+    { name: "Stockings", value: "stockings" },
+    { name: "Glasses", value: "glasses" },
+    { name: "Schoolgirl Uniform", value: "schoolgirl-uniform" },
+    { name: "Sole Female", value: "sole-female" },
+    { name: "Sole Male", value: "sole-male" },
+    { name: "Milf", value: "milf" },
+    { name: "Netorare", value: "netorare" },
+    { name: "Yuri", value: "yuri" },
+    { name: "Lolicon", value: "lolicon" },
+    { name: "Shotacon", value: "shotacon" },
+    { name: "Ahegao", value: "ahegao" },
+    { name: "Elf", value: "elf" },
+    { name: "Monster Girl", value: "monster-girl" },
+    { name: "Bunny Girl", value: "bunny-girl" },
+    { name: "Cosplaying", value: "cosplaying" },
+    { name: "Maid", value: "maid" },
+    { name: "Twintails", value: "twintails" }
+];
+
+const NHENTAI_SORT_OPTIONS = [
+    { name: "Latest", value: "latest" },
+    { name: "Popular", value: "popular" }
+];
+
 function safeString(value) {
     if (value === null || value === undefined) {
         return "";
@@ -508,32 +578,67 @@ class DefaultExtension extends MProvider {
         return this.mirrors;
     }
 
-    buildListPath(domain, mode, query, page) {
+    extractFilterValue(filters, type) {
+        if (!filters || !Array.isArray(filters)) return "";
+        for (let i = 0; i < filters.length; i++) {
+            const f = filters[i];
+            if (f && f.type === type) {
+                // SelectFilter has values array, state is index
+                if (typeof f.state === "number" && Array.isArray(f.values) && f.values[f.state]) {
+                    return safeString(f.values[f.state].value || "");
+                }
+                if (Array.isArray(f.values) && f.values.length > 0) {
+                    return safeString(f.values[0].value || f.values[0] || "");
+                }
+            }
+        }
+        return "";
+    }
+
+    buildListPath(domain, mode, query, page, filters) {
         const pageValue = Math.max(1, parseInt(page, 10) || 1);
         const hasQuery = !!safeString(query).trim();
         
-        if (domain.key === "xxx") {
-            // nhentai.xxx - use /language/english/ paths for English-only browsing
-            if (mode === "search" && hasQuery) {
-                // For search, append language:english to query (best effort)
-                const encoded = encodeURIComponent(safeString(query) + " language:english");
-                return "/search/?key=" + encoded + "&page=" + pageValue;
+        // Extract filter selections
+        const parody = this.extractFilterValue(filters, "parody");
+        const category = this.extractFilterValue(filters, "category");
+        const tag = this.extractFilterValue(filters, "tag");
+        const sort = this.extractFilterValue(filters, "sort");
+        
+        // If query or ANY filter is active, use search endpoint with combined query
+        const filterActive = parody || category || tag || hasQuery;
+        
+        if (filterActive) {
+            const parts = [];
+            if (hasQuery) parts.push(safeString(query).trim());
+            if (parody) parts.push("parody:" + parody.replace(/-/g, "+"));
+            if (category) parts.push("category:" + category.replace(/-/g, "+"));
+            if (tag) parts.push("tag:" + tag.replace(/-/g, "+"));
+            parts.push("language:english");
+            const combinedQuery = parts.join(" ");
+            
+            const useSort = sort === "popular" ? "&sort=popular" : "";
+            
+            if (domain.key === "xxx") {
+                return "/search/?key=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
             }
-            if (mode === "popular") {
+            return "/search?q=" + encodeURIComponent(combinedQuery) + "&page=" + pageValue + useSort;
+        }
+        
+        // No filters - use default English browsing
+        const wantPopular = mode === "popular" || sort === "popular";
+        
+        if (domain.key === "xxx") {
+            if (wantPopular) {
                 return "/language/english/popular/" + (pageValue > 1 ? "?page=" + pageValue : "");
             }
-            // Latest English
             return "/language/english/" + (pageValue > 1 ? "?page=" + pageValue : "");
         }
         
-        // nhentai.to - use /language/english paths
-        if (mode === "search" && hasQuery) {
-            return "/search?q=" + encodeURIComponent(safeString(query) + " language:english") + "&page=" + pageValue;
-        }
-        if (mode === "popular") {
+        // nhentai.to
+        if (wantPopular) {
             return "/language/english/popular" + (pageValue > 1 ? "?page=" + pageValue : "");
         }
-        // Latest English
         return "/language/english" + (pageValue > 1 ? "?page=" + pageValue : "");
     }
 
@@ -545,11 +650,11 @@ class DefaultExtension extends MProvider {
         };
     }
 
-    async fetchList(mode, query, page) {
+    async fetchList(mode, query, page, filters) {
         return await this.tryWithFallback(async function (domain) {
-            const html = await this.requestHtml(domain, this.buildListPath(domain, mode, query, page));
+            const html = await this.requestHtml(domain, this.buildListPath(domain, mode, query, page, filters));
             const parsed = this.parseListResponse(html, page, domain);
-            if (parsed.list.length === 0 && domain.key === "to" && mode === "latest" && page <= 1) {
+            if (parsed.list.length === 0 && domain.key === "to" && mode === "latest" && page <= 1 && !filters) {
                 const fallbackHtml = await this.requestHtml(domain, "/");
                 return this.parseListResponse(fallbackHtml, page, domain);
             }
@@ -559,7 +664,7 @@ class DefaultExtension extends MProvider {
 
     async getPopular(page) {
         try {
-            return await this.fetchList("popular", "", page);
+            return await this.fetchList("popular", "", page, null);
         } catch (error) {
             this.logError("getPopular", error);
             throw error;
@@ -568,7 +673,7 @@ class DefaultExtension extends MProvider {
 
     async getLatestUpdates(page) {
         try {
-            return await this.fetchList("latest", "", page);
+            return await this.fetchList("latest", "", page, null);
         } catch (error) {
             this.logError("getLatestUpdates", error);
             throw error;
@@ -578,7 +683,7 @@ class DefaultExtension extends MProvider {
     async search(query, page, filters) {
         try {
             const mode = normalizeWhitespace(query) ? "search" : "latest";
-            return await this.fetchList(mode, safeString(query), page);
+            return await this.fetchList(mode, safeString(query), page, filters);
         } catch (error) {
             this.logError("search", error);
             throw error;
@@ -653,6 +758,31 @@ class DefaultExtension extends MProvider {
     }
 
     getFilterList() {
-        return [];
+        return [
+            {
+                type_name: "SelectFilter",
+                type: "sort",
+                name: "Sort",
+                values: NHENTAI_SORT_OPTIONS.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
+            },
+            {
+                type_name: "SelectFilter",
+                type: "parody",
+                name: "Parody",
+                values: NHENTAI_PARODIES.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
+            },
+            {
+                type_name: "SelectFilter",
+                type: "category",
+                name: "Category",
+                values: NHENTAI_CATEGORIES.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
+            },
+            {
+                type_name: "SelectFilter",
+                type: "tag",
+                name: "Tag",
+                values: NHENTAI_TAGS.map(o => ({ type_name: "SelectOption", name: o.name, value: o.value }))
+            }
+        ];
     }
 }

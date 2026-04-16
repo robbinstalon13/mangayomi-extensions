@@ -250,65 +250,96 @@ class DefaultExtension extends MProvider {
             const info = extractGidToken(url);
             if (!info) throw new Error("Invalid gallery URL: " + url);
             
-            const apiBody = JSON.stringify({
-                method: "gdata",
-                gidlist: [[info.gid, info.token]],
-                namespace: 1
-            });
+            const fullUrl = url.indexOf("http") === 0 ? url : EHENTAI_BASE + url;
+            const html = await this.requestHtml(fullUrl);
             
-            const data = await this.requestJson(apiBody);
-            if (!data || !data.gmetadata || !data.gmetadata[0]) {
-                throw new Error("Failed to fetch gallery metadata");
-            }
+            // Title from <h1 id="gn">
+            const title = decodeHtml(stripTags(firstMatch(html, /<h1 id="gn"[^>]*>([\s\S]*?)<\/h1>/i))) || "Unknown";
+            const titleJpn = decodeHtml(stripTags(firstMatch(html, /<h1 id="gj"[^>]*>([\s\S]*?)<\/h1>/i)));
             
-            const meta = data.gmetadata[0];
-            const tags = Array.isArray(meta.tags) ? meta.tags : [];
+            // Cover image from <div id="gd1"><div style="...url(URL)...
+            let imageUrl = firstMatch(html, /id="gd1"[^>]*>\s*<div[^>]+url\(([^)]+)\)/i);
             
+            // Category
+            const category = decodeHtml(stripTags(firstMatch(html, /<div id="gdc"[^>]*>[\s\S]*?<div[^>]+>([^<]+)<\/div>/i)));
+            
+            // Page count from Length row
+            let pageCount = 0;
+            const lengthMatch = html.match(/class="gdt1">Length:<\/td>\s*<td[^>]*>(\d+)\s*pages?/i);
+            if (lengthMatch) pageCount = parseInt(lengthMatch[1], 10) || 0;
+            
+            // Posted date
+            const postedMatch = html.match(/class="gdt1">Posted:<\/td>\s*<td[^>]*>([^<]+)</i);
+            const posted = postedMatch ? postedMatch[1].trim() : "";
+            
+            // Rating
+            const ratingMatch = html.match(/id="rating_label"[^>]*>Average:\s*([\d.]+)/i);
+            const rating = ratingMatch ? ratingMatch[1] : "";
+            
+            // Tags from #taglist
             const artists = [];
             const parodies = [];
             const characters = [];
             const generalTags = [];
+            const allGenre = [];
             
-            for (let i = 0; i < tags.length; i++) {
-                const tag = safeString(tags[i]);
-                if (tag.indexOf("artist:") === 0) {
-                    artists.push(tag.substring(7));
-                } else if (tag.indexOf("parody:") === 0) {
-                    parodies.push(tag.substring(7));
-                } else if (tag.indexOf("character:") === 0) {
-                    characters.push(tag.substring(10));
-                } else {
-                    generalTags.push(tag);
+            const taglistMatch = html.match(/id="taglist"[\s\S]*?<\/table>/i);
+            if (taglistMatch) {
+                const taglist = taglistMatch[0];
+                // Each row: <tr><td class="tc">CATEGORY:</td><td>...<a>TAG</a>...</td></tr>
+                const rowPattern = /<tr>\s*<td class="tc">([^<]+):<\/td>\s*<td>([\s\S]*?)<\/td>\s*<\/tr>/gi;
+                let rowMatch;
+                while ((rowMatch = rowPattern.exec(taglist)) !== null) {
+                    const cat = decodeHtml(stripTags(rowMatch[1])).toLowerCase().trim();
+                    const values = [];
+                    const linkPattern = /<a[^>]*>([^<]+)<\/a>/gi;
+                    let linkMatch;
+                    while ((linkMatch = linkPattern.exec(rowMatch[2])) !== null) {
+                        const tag = decodeHtml(stripTags(linkMatch[1]));
+                        if (tag) {
+                            values.push(tag);
+                            allGenre.push(cat + ":" + tag);
+                        }
+                    }
+                    if (cat === "artist") {
+                        for (let i = 0; i < values.length; i++) artists.push(values[i]);
+                    } else if (cat === "parody") {
+                        for (let i = 0; i < values.length; i++) parodies.push(values[i]);
+                    } else if (cat === "character") {
+                        for (let i = 0; i < values.length; i++) characters.push(values[i]);
+                    } else {
+                        for (let i = 0; i < values.length; i++) generalTags.push(values[i]);
+                    }
                 }
             }
             
-            const author = artists.length > 0 ? artists.join(", ") : safeString(meta.uploader);
-            const pageCount = parseInt(meta.filecount, 10) || 0;
+            const author = artists.length > 0 ? artists.join(", ") : "Unknown";
             
             const lines = [];
-            if (meta.title_jpn) lines.push("Japanese: " + meta.title_jpn);
-            if (meta.category) lines.push("Category: " + meta.category);
+            if (titleJpn) lines.push("Japanese: " + titleJpn);
+            if (category) lines.push("Category: " + category);
             if (pageCount) lines.push("Pages: " + pageCount);
-            if (meta.rating) lines.push("Rating: " + meta.rating + "/5");
+            if (rating) lines.push("Rating: " + rating + "/5");
+            if (posted) lines.push("Posted: " + posted);
             if (parodies.length > 0) lines.push("Parodies: " + parodies.join(", "));
             if (artists.length > 0) lines.push("Artists: " + artists.join(", "));
-            if (characters.length > 0) lines.push("Characters: " + characters.join(", "));
+            if (characters.length > 0) lines.push("Characters: " + characters.slice(0, 8).join(", "));
             if (generalTags.length > 0) lines.push("Tags: " + generalTags.slice(0, 20).join(", "));
             
             return {
-                name: safeString(meta.title) || "Unknown",
+                name: title,
                 link: info.url,
-                imageUrl: safeString(meta.thumb),
+                imageUrl: imageUrl,
                 description: lines.join("\n"),
                 author: author,
                 artist: artists.join(", "),
-                genre: tags,
+                genre: allGenre,
                 status: 1,
                 chapters: [{
                     name: pageCount > 0 ? "Read (" + pageCount + " pages)" : "Read",
                     url: info.url,
                     scanlator: "",
-                    dateUpload: meta.posted ? String(parseInt(meta.posted, 10) * 1000) : ""
+                    dateUpload: ""
                 }]
             };
         } catch (error) {

@@ -116,9 +116,9 @@ function parseGalleryCards(html) {
 
 function parseHasNextPage(html) {
     const htmlStr = safeString(html);
-    // HentaiFox uses /pag/N/ pattern
-    return /href="\/(?:pag|parody\/[^\/]+\/pag|search[^"]*page=\d+)/.test(htmlStr) ||
-           /class="[^"]*next[^"]*"[^>]*href=/i.test(htmlStr);
+    // Look for "Next" link with a real (non-#) href inside pagination
+    // Pattern: <a class='page-link' href='//hentaifox.com/page/N/'>Next</a>
+    return /<a[^>]+class=['"]page-link['"][^>]+href=['"](?!#)[^'"]+['"][^>]*>\s*Next\s*<\/a>/i.test(htmlStr);
 }
 
 // Parse gallery detail page
