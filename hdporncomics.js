@@ -115,31 +115,37 @@ function parseComicCards(html) {
     const htmlStr = safeString(html);
     const seen = {};
     
-    // Match post/article elements with thumbnail images
-    // Each comic has: <a href="{url}">...<img ... src="{image}" .../>...</a>
-    // followed by a title link
-    const regex = /<a[^>]+href="(https:\/\/hdporncomics\.com\/[^"\/]+\/)"[^>]*>\s*<img[^>]+(?:src|data-src)="([^"]+)"[^>]+alt="([^"]*)"/gi;
+    // Match slider-item / grid blocks:
+    // <a href="{comicUrl}"> <picture>...<source srcset="{thumbUrl}">...<img alt="{title}">... </picture> </a>
+    // Comic URLs are like: https://hdporncomics.com/{slug}-sex-comic/
+    //   or https://hdporncomics.com/{slug}-ongoing-...-sex-comic/
+    // We match: <a href="..."> then look for <source srcset> and <img alt> inside
+    const blockRegex = new RegExp('<a[^>]+href="(https://hdporncomics[^"]+/)[^"]*"[^>]*>\\s*<picture[^>]*>[\\s\\S]*?<source[^>]+srcset="([^"]+)"[\\s\\S]*?<img[^>]+alt="([^"]*)', 'gi');
     
-    htmlStr.replace(regex, function (_, url, imageUrl, alt) {
+    htmlStr.replace(blockRegex, function (_, url, srcset, alt) {
         if (!url || seen[url]) return _;
-        // Filter out non-comic URLs (tag pages, category pages etc.)
+        // Only include comic detail pages: skip navigation/listing/tag/artist URLs
         if (url.indexOf("/tag/") !== -1 || url.indexOf("/artist/") !== -1 ||
-            url.indexOf("/category/") !== -1 || url.indexOf("/comics/") !== -1 ||
-            url.indexOf("/page/") !== -1 || url.indexOf("?") !== -1 ||
+            url.indexOf("/comics/") !== -1 || url.indexOf("/page/") !== -1 ||
             url.indexOf("/manhwa") !== -1 || url.indexOf("/gay-manga") !== -1 ||
-            url.indexOf("/trending") !== -1 || url.indexOf("/stats") !== -1 ||
-            url.indexOf("/contact") !== -1 || url.indexOf("/dmca") !== -1 ||
-            url.indexOf("/18-u-s") !== -1) {
+            url.indexOf("/stats") !== -1 || url.indexOf("/contact") !== -1 ||
+            url.indexOf("/dmca") !== -1 || url.indexOf("/18-u-s") !== -1 ||
+            url.indexOf("/comic-series") !== -1 || url.indexOf("/user/") !== -1) {
+            return _;
+        }
+        // Exclude non-hdporncomics ad links
+        if (url.indexOf("neurogrid") !== -1 || url.indexOf("candyai") !== -1 ||
+            url.indexOf("tsyndicate") !== -1 || url.indexOf("faphouse") !== -1) {
             return _;
         }
         seen[url] = true;
-        let title = stripTags(alt).replace(/^Porn Comics\s*-\s*/i, "").trim();
-        if (!title) {
-            title = "Unknown";
-        }
+        // Use first URL from srcset (may have multiple comma-separated)
+        const imageUrl = safeString(srcset).split(",")[0].trim().split(" ")[0];
+        let title = stripTags(alt).replace(/^Porn Comics\s*-\s*/i, "").replace(/^\[[^\]]+\]\s*/i, "").trim();
+        if (!title) title = "Unknown";
         cards.push({
             name: title,
-            imageUrl: safeString(imageUrl),
+            imageUrl: imageUrl,
             link: url
         });
         return _;
@@ -270,8 +276,8 @@ class DefaultExtension extends MProvider {
         // Extract title
         const title = stripTags(firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i)) || "Unknown";
         
-        // Extract cover image
-        let cover = firstMatch(html, /<img[^>]+alt="[^"]+thumbnail[^"]*"[^>]+src="([^"]+)"/i);
+        // Extract cover image - first source srcset or og:image
+        let cover = firstMatch(html, /<source[^>]+srcset="(https:\/\/l\.hdporncomics\.com\/thumbs\/[^"]+)"[^>]*>/i);
         if (!cover) {
             cover = firstMatch(html, /<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
         }
@@ -334,8 +340,9 @@ class DefaultExtension extends MProvider {
         const pages = [];
         const seen = {};
         
-        // Find all figure > a > href pointing to full-res images
-        safeString(html).replace(/<a[^>]+href="(https:\/\/e\.hdporncomics\.com\/uploads\/[^"]+\.(?:jpg|jpeg|png))"[^>]*>/gi, function (_, imgUrl) {
+        // Full-res images are linked via <a href="https://l.hdporncomics.com/uploads/..."> in figure elements
+        const fullImgRegex = /<a[^>]+href="(https:\/\/l\.hdporncomics\.com\/uploads\/[^"]+\.(?:jpg|jpeg|png))"[^>]*>/gi;
+        safeString(html).replace(fullImgRegex, function (_, imgUrl) {
             if (imgUrl && !seen[imgUrl]) {
                 seen[imgUrl] = true;
                 pages.push(imgUrl);
@@ -343,9 +350,10 @@ class DefaultExtension extends MProvider {
             return _;
         });
         
-        // Fallback: look for any e.hdporncomics.com image URLs directly
+        // Fallback: any l.hdporncomics.com/uploads/ image URL in src or srcset
         if (pages.length === 0) {
-            safeString(html).replace(/https:\/\/e\.hdporncomics\.com\/uploads\/[a-zA-Z0-9_\-\/]+\.(?:jpg|jpeg|png)/gi, function (match) {
+            const fallbackImgRegex = /https:\/\/l\.hdporncomics\.com\/uploads\/[a-zA-Z0-9_\-\/]+\.(?:jpg|jpeg|png)/gi;
+            safeString(html).replace(fallbackImgRegex, function (match) {
                 if (!seen[match]) {
                     seen[match] = true;
                     pages.push(match);
