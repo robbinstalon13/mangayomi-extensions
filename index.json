@@ -134,7 +134,7 @@
   ,{
     "name": "AnymeX Anime",
     "id": 177013139,
-    "baseUrl": "https://api.themoviedb.org",
+    "baseUrl": "https://api.2embed.cc",
     "lang": "en",
     "typeSource": "multi",
     "iconUrl": "https://raw.githubusercontent.com/RyanYuuki/AnymeX/main/assets/images/logo.png",
@@ -143,14 +143,14 @@
     "isNsfw": false,
     "hasCloudflare": false,
     "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/anymex_anime.js",
-    "apiUrl": "https://api.themoviedb.org/3",
-    "version": "0.0.1",
+    "apiUrl": "https://api.2embed.cc",
+    "version": "0.0.2",
     "isManga": false,
     "itemType": 1,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "Japanese anime (sub + dub) | TMDB metadata | himer365ery.com streams | Dub-first ordering"
+    "notes": "Japanese anime | TMDB popular/latest | 2embed.cc search + streams"
   }
 ]
