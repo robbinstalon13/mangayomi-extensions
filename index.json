@@ -134,23 +134,23 @@
   ,{
     "name": "AnymeX Anime",
     "id": 177013139,
-    "baseUrl": "https://api.2embed.cc",
+    "baseUrl": "https://allmanga.to",
     "lang": "en",
-    "typeSource": "multi",
+    "typeSource": "single",
     "iconUrl": "https://raw.githubusercontent.com/RyanYuuki/AnymeX/main/assets/images/logo.png",
     "dateFormat": "",
     "dateFormatLocale": "",
     "isNsfw": false,
     "hasCloudflare": false,
     "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/anymex_anime.js",
-    "apiUrl": "https://api.2embed.cc",
-    "version": "0.0.2",
+    "apiUrl": "https://api.allanime.day/api",
+    "version": "0.0.3",
     "isManga": false,
     "itemType": 1,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "Japanese anime | TMDB popular/latest | 2embed.cc search + streams"
+    "notes": "AllAnime backend | sub + dub | direct m3u8 streams | no embed loops"
   }
 ]
