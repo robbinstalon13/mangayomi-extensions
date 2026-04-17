@@ -131,4 +131,26 @@
     "sourceCodeLanguage": 1,
     "notes": "Western comics | Filters: Artist/Tag | JAB, ShadBase, Palcomix, etc."
   }
+  ,{
+    "name": "AnymeX Anime",
+    "id": 177013139,
+    "baseUrl": "https://api.themoviedb.org",
+    "lang": "en",
+    "typeSource": "multi",
+    "iconUrl": "https://raw.githubusercontent.com/RyanYuuki/AnymeX/main/assets/images/logo.png",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/anymex_anime.js",
+    "apiUrl": "https://api.themoviedb.org/3",
+    "version": "0.0.1",
+    "isManga": false,
+    "itemType": 1,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "Japanese anime (sub + dub) | TMDB metadata | himer365ery.com streams | Dub-first ordering"
+  }
 ]
