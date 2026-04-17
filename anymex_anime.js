@@ -7,14 +7,14 @@ const mangayomiSources = [{
     "typeSource": "single",
     "itemType": 1,
     "isNsfw": false,
-    "version": "0.0.3",
+    "version": "0.0.4",
     "pkgPath": "anymex_anime.js"
 }];
 
 class DefaultExtension extends MProvider {
     async request(body) {
-        const apiUrl = this.source.apiUrl;
-        const baseUrl = this.source.baseUrl;
+        const apiUrl = "https://api.allanime.day/api";
+        const baseUrl = "https://allmanga.to";
         return (await new Client().get(apiUrl + body, { "Referer": baseUrl })).body;
     }
 
@@ -108,7 +108,7 @@ class DefaultExtension extends MProvider {
     }
 
     async getVideoList(url) {
-        const baseUrl = this.source.baseUrl;
+        const baseUrl = "https://allmanga.to";
         const ep = JSON.parse(url);
         const translationTypes = ep.translationType;
         const videos = [];
