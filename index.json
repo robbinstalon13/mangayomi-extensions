@@ -134,7 +134,7 @@
   ,{
     "name": "AnymeX Anime",
     "id": 177013139,
-    "baseUrl": "https://api.jikan.moe",
+    "baseUrl": "https://api-anime-rouge.vercel.app",
     "lang": "en",
     "typeSource": "single",
     "iconUrl": "https://raw.githubusercontent.com/RyanYuuki/AnymeX/main/assets/images/logo.png",
@@ -143,14 +143,14 @@
     "isNsfw": false,
     "hasCloudflare": false,
     "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/anymex_anime.js",
-    "apiUrl": "https://api.jikan.moe/v4",
-    "version": "0.0.5",
+    "apiUrl": "https://api-anime-rouge.vercel.app/aniwatch",
+    "version": "0.0.6",
     "isManga": false,
     "itemType": 1,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "Jikan (MAL) metadata + ani.zip IMDB mapping + vidsrc.me streams"
+    "notes": "HiAnime via aniwatch API | sub+dub | direct m3u8 streams"
   }
 ]
