@@ -175,4 +175,48 @@
     "sourceCodeLanguage": 1,
     "notes": "HiAnime via aniwatch API | sub+dub | direct m3u8 streams"
   }
+  ,{
+    "name": "Asura Scans",
+    "id": 524070078,
+    "baseUrl": "https://asuracomic.net",
+    "lang": "en",
+    "typeSource": "single",
+    "iconUrl": "https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/javascript/icon/en.asurascans.png",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/asurascans.js",
+    "apiUrl": "",
+    "version": "0.1.7",
+    "isManga": true,
+    "itemType": 0,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "Popular English manga | Fast updates | One Piece, Solo Leveling, etc."
+  }
+  ,{
+    "name": "Mangapill",
+    "id": 987654321,
+    "baseUrl": "https://mangapill.com",
+    "lang": "en",
+    "typeSource": "single",
+    "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=https://mangapill.com/",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/mangapill.js",
+    "apiUrl": "",
+    "version": "1.0.3",
+    "isManga": true,
+    "itemType": 0,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "Wide manga catalog | Genre/Status/Type filters | Romaji/English titles"
+  }
 ]
