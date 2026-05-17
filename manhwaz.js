@@ -152,28 +152,25 @@ class DefaultExtension extends MProvider {
 
   async getPageList(url) {
     const baseUrl = this.getBaseUrl();
-    const fullUrl = url.startsWith("http") ? url : `${baseUrl}${url}`;
+    const fullUrl = url.startsWith("http") ? url : baseUrl + url;
     const res = await new Client().get(fullUrl, this.getHeaders());
     const doc = new Document(res.body);
 
     const pages = [];
     const imgEls = doc.select("div.page-break img, div.container img");
-    for (const img of imgEls) {
-      let rawUrl = img.attr("data-src");
-      if (!rawUrl) rawUrl = img.attr("src");
-      if (!rawUrl || rawUrl.includes("data:image")) continue;
-      
-      let finalUrl = "";
-      if (rawUrl.startsWith("//")) {
-        finalUrl = "https:" + rawUrl;
-      } else if (rawUrl.startsWith("/")) {
-        finalUrl = baseUrl + rawUrl;
-      } else {
-        finalUrl = rawUrl;
-      }
-      
-      if (finalUrl && pages.indexOf(finalUrl) === -1) {
-        pages.push(finalUrl);
+    for (let i = 0; i < imgEls.length; i++) {
+      const img = imgEls[i];
+      const dataSrc = img.getAttribute("data-src");
+      if (dataSrc && !dataSrc.includes("data:image")) {
+        let finalUrl = dataSrc;
+        if (dataSrc.startsWith("//")) {
+          finalUrl = "https:" + dataSrc;
+        } else if (dataSrc.startsWith("/")) {
+          finalUrl = baseUrl + dataSrc;
+        }
+        if (pages.indexOf(finalUrl) === -1) {
+          pages.push(finalUrl);
+        }
       }
     }
     return pages;
