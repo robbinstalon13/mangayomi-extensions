@@ -753,18 +753,14 @@ class DefaultExtension extends MProvider {
     }
     
     getFilterList() {
+        // Combine new anime (western art) with manga parodies - new anime first
+        const allParodies = MULT_NEW_ANIME.concat(MULT_MANGA_PARODIES);
         return [
             {
                 type_name: "SelectFilter",
                 type: "parody",
-                name: "Parody (Manga)",
-                values: MULT_MANGA_PARODIES.map(function (o) { return { type_name: "SelectOption", name: o.name, value: o.value }; })
-            },
-            {
-                type_name: "SelectFilter",
-                type: "newanime",
-                name: "New Anime (Western Art)",
-                values: MULT_NEW_ANIME.map(function (o) { return { type_name: "SelectOption", name: o.name, value: o.value }; })
+                name: "Parody",
+                values: allParodies.map(function (o) { return { type_name: "SelectOption", name: o.name, value: o.value }; })
             },
             {
                 type_name: "SelectFilter",
