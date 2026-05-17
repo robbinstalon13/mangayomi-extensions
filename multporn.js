@@ -7,8 +7,11 @@ const MULT_USER_AGENT =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 // Manga parodies - URL slugs from /manga/{slug}
+// Newer anime under comics section use /comics/{slug} instead (western cartoon style art)
 const MULT_MANGA_PARODIES = [
     { name: "Any", value: "" },
+    // N - New/Trending Anime (under /comics/)
+    { name: "N-BL", value: "_newblue" },
     // A
     { name: "A Certain Magical Index", value: "a_certain_magical_index" },
     { name: "Amagi Brilliant Park", value: "amagi_brilliant_park" },
@@ -189,6 +192,24 @@ const MULT_MANGA_PARODIES = [
     { name: "Yuruyuri", value: "yuruyuri" },
     // Z
     { name: "Zombieland Saga", value: "zombieland_saga" }
+];
+
+// New/Trending Anime in comics section (western cartoon art style on multporn)
+const MULT_NEW_ANIME = [
+    { name: "Blue Lock", value: "_newblue_lock" },
+    { name: "Chainsaw Man", value: "_newchainsaw_man" },
+    { name: "Dandadan", value: "_newdandadan" },
+    { name: "Frieren", value: "_newfrieren_beyond_journeys_end" },
+    { name: "Jujutsu Kaisen", value: "_newjujutsu_kaisen" },
+    { name: "Kaiju No. 8", value: "_newkaiju_no_8" },
+    { name: "KonoSuba", value: "_newkonosuba" },
+    { name: "Mushoku Tensei", value: "_newmushoku_tensei" },
+    { name: "Oshi no Ko", value: "_newoshi_no_ko" },
+    { name: "Sakamoto Days", value: "_newsakamoto_days" },
+    { name: "Solo Leveling", value: "_newsolo_leveling" },
+    { name: "Spy x Family", value: "_newspy_x_family" },
+    { name: "Undead Unluck", value: "_newundead_unluck" },
+    { name: "Vinland Saga", value: "_newvinland_saga" }
 ];
 
 // Popular Western artists (Multporn uses URL slugs)
@@ -389,7 +410,14 @@ function buildMangaUrl(mode, query, page, parody, sort) {
     
     // Specific parody selected
     if (parody) {
-        // Format: ?page=0,N (0-indexed, comma-separated)
+        // Check if it's a "new anime" (western art style) - prefixed with "_new"
+        if (parody.indexOf("_new") === 0) {
+            // Route to comics section for new anime
+            const slug = parody.substring(5); // strip "_new" prefix
+            const pageParam = pageValue > 1 ? "?page=" + (pageValue - 1) : "";
+            return MULT_BASE + "/comics/" + slug + pageParam;
+        }
+        // Regular manga parody - format: ?page=0,N (0-indexed, comma-separated)
         const pageParam = pageValue > 1 ? "?page=0%2C" + (pageValue - 1) : "";
         return MULT_BASE + "/manga/" + parody + "?rule34=1" + pageParam;
     }
@@ -731,6 +759,12 @@ class DefaultExtension extends MProvider {
                 type: "parody",
                 name: "Parody (Manga)",
                 values: MULT_MANGA_PARODIES.map(function (o) { return { type_name: "SelectOption", name: o.name, value: o.value }; })
+            },
+            {
+                type_name: "SelectFilter",
+                type: "newanime",
+                name: "New Anime (Western Art)",
+                values: MULT_NEW_ANIME.map(function (o) { return { type_name: "SelectOption", name: o.name, value: o.value }; })
             },
             {
                 type_name: "SelectFilter",
