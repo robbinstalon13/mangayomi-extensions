@@ -132,6 +132,28 @@
     "notes": "Western comics + Manga parodies + New anime | 170+ parodies + 14 new/trending anime (Dandadan, Blue Lock, etc.)"
   }
   ,{
+    "name": "MangaDex",
+    "id": 177013140,
+    "baseUrl": "https://mangadex.org",
+    "lang": "en",
+    "typeSource": "single",
+    "iconUrl": "https://api.mangadex.org/static/favicon.svg",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/mangadex.js",
+    "apiUrl": "https://api.mangadex.org",
+    "version": "1.0.0",
+    "isManga": true,
+    "itemType": 0,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "English manga | One Piece, Solo Leveling, JJK, Blue Lock, etc. | SFW only | Genre/Status/Demographic filters"
+  }
+  ,{
     "name": "AnymeX Anime",
     "id": 177013139,
     "baseUrl": "https://api-anime-rouge.vercel.app",
