@@ -348,9 +348,19 @@ function parseComicCards(html) {
 }
 
 // Build URL for comics section (original behavior)
-function buildComicsUrl(mode, query, page, artist, tag, sort) {
+function buildComicsUrl(mode, query, page, artist, tag, sort, parody) {
     const pageValue = Math.max(1, parseInt(page, 10) || 1);
     const pageParam = pageValue > 1 ? (pageValue - 1) : 0;
+    
+    // New anime (western art style) - use /comics/{slug}
+    if (parody && parody.indexOf("_new") === 0) {
+        const slug = parody.substring(5); // strip "_new" prefix
+        let url = MULT_BASE + "/comics/" + slug;
+        if (pageParam > 0) {
+            url += "?page=" + pageParam;
+        }
+        return url;
+    }
     
     // Text search takes priority
     if (query) {
@@ -515,7 +525,8 @@ class DefaultExtension extends MProvider {
         const artist = extractFilterValue(filters, "artist");
         const tag = extractFilterValue(filters, "tag");
         const sort = extractFilterValue(filters, "sort");
-        const url = buildComicsUrl(mode, query, page, artist, tag, sort);
+        const parody = extractFilterValue(filters, "parody");
+        const url = buildComicsUrl(mode, query, page, artist, tag, sort, parody);
         const html = await this.requestHtml(url);
         const cards = parseComicCards(html);
         return {
@@ -541,26 +552,29 @@ class DefaultExtension extends MProvider {
     async fetchList(mode, query, page, filters) {
         const parody = extractFilterValue(filters, "parody");
         
-        // If specific parody selected, use manga section
+        // If specific parody selected
         if (parody) {
+            // Check if it's a "new anime" (western art style) - use fetchComics
+            if (parody.indexOf("_new") === 0) {
+                return await this.fetchComics(mode, query, page, filters);
+            }
+            // Regular manga parody - use fetchManga
             return await this.fetchManga(mode, query, page, filters);
         }
         
-        // Otherwise use comics section
+        // Otherwise use comics section (default)
         return await this.fetchComics(mode, query, page, filters);
     }
     
     // getPopular: fetch both comics and manga, merge results
     async getPopular(page) {
         try {
-            const artist = extractFilterValue(null, "artist");
-            const tag = extractFilterValue(null, "tag");
             const sort = "popular";
             
-            // Fetch both sources in parallel
+            // Fetch both sources in parallel (filters=null for no filters)
             const [comicsResult, mangaResult] = await Promise.all([
-                this.fetchComics("popular", "", page, null, null, sort),
-                this.fetchManga("popular", "", page, null, sort)
+                this.fetchComics("popular", "", page, null),
+                this.fetchManga("popular", "", page, null)
             ]);
             
             // Merge results from both sources
@@ -596,7 +610,7 @@ class DefaultExtension extends MProvider {
             console.log("[multporn] getPopular error: " + (error && error.message ? error.message : String(error)));
             // Fallback to comics only
             try {
-                return await this.fetchComics("popular", "", page, null, null, "popular");
+                return await this.fetchComics("popular", "", page, null);
             } catch (e) {
                 return { list: [], hasNextPage: false };
             }
@@ -754,7 +768,9 @@ class DefaultExtension extends MProvider {
     
     getFilterList() {
         // Combine new anime (western art) with manga parodies - new anime first
-        const allParodies = MULT_NEW_ANIME.concat(MULT_MANGA_PARODIES);
+        // Add "Any" as first option
+        const anyOption = [{ name: "Any", value: "" }];
+        const allParodies = anyOption.concat(MULT_NEW_ANIME).concat(MULT_MANGA_PARODIES);
         return [
             {
                 type_name: "SelectFilter",
