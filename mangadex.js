@@ -28,6 +28,7 @@ class DefaultExtension extends MProvider {
             const offset = 20 * (page - 1);
             const url = `${this.source.apiUrl}/manga?limit=20&offset=${offset}` +
                 `&availableTranslatedLanguage[]=en` +
+                `&hasAvailableChapters=true` +
                 `&includes[]=cover_art` +
                 `&contentRating[]=safe` +
                 `&contentRating[]=suggestive` +
@@ -92,6 +93,8 @@ class DefaultExtension extends MProvider {
             const offset = 20 * (page - 1);
             let url = `${this.source.apiUrl}/manga?includes[]=cover_art` +
                 `&offset=${offset}&limit=20&title=${encodeURIComponent(query)}` +
+                `&availableTranslatedLanguage[]=en` +
+                `&hasAvailableChapters=true` +
                 `&contentRating[]=safe&contentRating[]=suggestive`;
 
             // Apply filters
