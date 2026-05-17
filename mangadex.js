@@ -1,75 +1,61 @@
 // MangaDex Extension for Mangayomi
-// API Documentation: https://api.mangadex.org/docs/
+// API: https://api.mangadex.org
 
-const MD_BASE = "https://api.mangadex.org";
-const MD_COVER = "https://uploads.mangadex.org";
+var MD_BASE = "https://api.mangadex.org";
+var MD_COVER = "https://uploads.mangadex.org";
 
-// Genre tags
-const MD_GENRES = [
+var MD_GENRES = [
     { name: "Any", value: "" },
     { name: "Action", value: "action" },
     { name: "Adventure", value: "adventure" },
     { name: "Comedy", value: "comedy" },
     { name: "Drama", value: "drama" },
     { name: "Fantasy", value: "fantasy" },
-    { name: "Horror", value: "horror" },
-    { name: "Mystery", value: "mystery" },
     { name: "Romance", value: "romance" },
     { name: "Sci-Fi", value: "science-fiction" },
     { name: "Slice of Life", value: "slice-of-life" },
-    { name: "Sports", value: "sports" },
     { name: "Supernatural", value: "supernatural" },
+    { name: "Horror", value: "horror" },
+    { name: "Mystery", value: "mystery" },
     { name: "Thriller", value: "thriller" },
-    { name: "Isekai", value: "isekai" },
-    { name: "Mecha", value: "mecha" },
-    { name: "Yaoi", value: "yaoi" },
-    { name: "Yuri", value: "yuri" },
-    { name: "Ecchi", value: "ecchi" }
+    { name: "Sports", value: "sports" },
+    { name: "Isekai", value: "isekai" }
 ];
 
-const MD_STATUS = [
+var MD_STATUS = [
     { name: "Any", value: "" },
     { name: "Ongoing", value: "ongoing" },
     { name: "Completed", value: "completed" },
-    { name: "Hiatus", value: "hiatus" },
-    { name: "Cancelled", value: "cancelled" }
+    { name: "Hiatus", value: "hiatus" }
 ];
 
-const MD_DEMO = [
-    { name: "Any", value: "" },
-    { name: "Shounen", value: "shounen" },
-    { name: "Shoujo", value: "shoujo" },
-    { name: "Seinen", value: "seinen" },
-    { name: "Josei", value: "josei" }
-];
-
-const MD_SORT = [
+var MD_SORT = [
     { name: "Latest", value: "latest" },
     { name: "Popular", value: "popular" },
     { name: "Title A-Z", value: "title" }
 ];
 
-function safe(str) {
-    if (str === null || str === undefined) return "";
-    return String(str);
+function safeStr(s) {
+    if (s === null || s === undefined) return "";
+    return String(s);
 }
 
-function getTitle(attrs) {
+function getMangaTitle(attrs) {
     if (!attrs || !attrs.title) return "Unknown";
     return attrs.title.en || attrs.title["en-us"] || Object.values(attrs.title)[0] || "Unknown";
 }
 
-function getDesc(attrs) {
+function getMangaDesc(attrs) {
     if (!attrs || !attrs.description) return "";
     return attrs.description.en || attrs.description["en-us"] || "";
 }
 
-function getCover(manga) {
+function getCoverUrl(manga) {
     var rels = manga.relationships || [];
     for (var i = 0; i < rels.length; i++) {
-        var rel = rels[i];
-        if (rel.type === "cover_art" && rel.attributes && rel.attributes.fileName) {
-            return MD_COVER + "/covers/" + manga.id + "/" + rel.attributes.fileName + ".256.jpg";
+        var r = rels[i];
+        if (r.type === "cover_art" && r.attributes && r.attributes.fileName) {
+            return MD_COVER + "/covers/" + manga.id + "/" + r.attributes.fileName + ".256.jpg";
         }
     }
     return "";
@@ -81,7 +67,7 @@ function getFilterVal(filters, type) {
         var f = filters[i];
         if (f && f.type === type) {
             if (typeof f.state === "number" && Array.isArray(f.values) && f.values[f.state]) {
-                return safe(f.values[f.state].value || "");
+                return safeStr(f.values[f.state].value || "");
             }
         }
     }
@@ -89,37 +75,17 @@ function getFilterVal(filters, type) {
 }
 
 class DefaultExtension extends MProvider {
-    constructor() {
-        super();
-        this.clientConfig = {
-            verifyCertificates: false,
-            timeout: 30
-        };
+    async api(path) {
+        var resp = await new Client().get(MD_BASE + path);
+        return JSON.parse(resp.body);
     }
     
-    getHeaders() {
+    mapManga(m) {
         return {
-            "User-Agent": "Mangayomi/1.0",
-            "Accept": "application/json"
+            name: getMangaTitle(m.attributes),
+            imageUrl: getCoverUrl(m),
+            link: m.id
         };
-    }
-    
-    async fetchJson(url) {
-        var client = new Client(this.clientConfig);
-        var resp = await client.get(url, this.getHeaders());
-        var status = Number(resp.statusCode || 0);
-        if (status >= 400) {
-            throw new Error("HTTP " + status + " for " + url);
-        }
-        var body = safe(resp.body);
-        if (!body) {
-            throw new Error("Empty response for " + url);
-        }
-        try {
-            return JSON.parse(body);
-        } catch (e) {
-            throw new Error("JSON parse error: " + e.message);
-        }
     }
     
     async getPopular(page) {
@@ -128,20 +94,13 @@ class DefaultExtension extends MProvider {
             var limit = 20;
             var offset = (pageNum - 1) * limit;
             
-            var url = MD_BASE + "/manga?limit=" + limit + "&offset=" + offset + 
-                "&order[followedCount]=desc&includes[]=cover_art&includes[]=author";
+            var data = await this.api("/manga?limit=" + limit + "&offset=" + offset + 
+                "&order[followedCount]=desc&includes[]=cover_art");
             
-            var data = await this.fetchJson(url);
-            var list = [];
             var results = data.results || [];
-            
+            var list = [];
             for (var i = 0; i < results.length; i++) {
-                var manga = results[i];
-                list.push({
-                    name: getTitle(manga.attributes),
-                    imageUrl: getCover(manga),
-                    link: manga.id
-                });
+                list.push(this.mapManga(results[i]));
             }
             
             var total = data.total || 0;
@@ -154,26 +113,23 @@ class DefaultExtension extends MProvider {
         }
     }
     
+    get supportsLatest() {
+        return true;
+    }
+    
     async getLatestUpdates(page) {
         try {
             var pageNum = Math.max(1, parseInt(page, 10) || 1);
             var limit = 20;
             var offset = (pageNum - 1) * limit;
             
-            var url = MD_BASE + "/manga?limit=" + limit + "&offset=" + offset + 
-                "&order[latestUploadedChapter]=desc&includes[]=cover_art&includes[]=author";
+            var data = await this.api("/manga?limit=" + limit + "&offset=" + offset + 
+                "&order[latestUploadedChapter]=desc&includes[]=cover_art");
             
-            var data = await this.fetchJson(url);
-            var list = [];
             var results = data.results || [];
-            
+            var list = [];
             for (var i = 0; i < results.length; i++) {
-                var manga = results[i];
-                list.push({
-                    name: getTitle(manga.attributes),
-                    imageUrl: getCover(manga),
-                    link: manga.id
-                });
+                list.push(this.mapManga(results[i]));
             }
             
             var total = data.total || 0;
@@ -192,38 +148,26 @@ class DefaultExtension extends MProvider {
             var limit = 20;
             var offset = (pageNum - 1) * limit;
             
-            var url = MD_BASE + "/manga?limit=" + limit + "&offset=" + offset + 
+            var path = "/manga?limit=" + limit + "&offset=" + offset + 
                 "&title=" + encodeURIComponent(query.trim()) +
-                "&includes[]=cover_art&includes[]=author";
+                "&includes[]=cover_art";
             
             var genre = getFilterVal(filters, "genre");
-            var status = getFilterVal(filters, "status");
-            var demo = getFilterVal(filters, "demographic");
+            if (genre) path += "&includedTags[]=" + genre;
+            
             var sort = getFilterVal(filters, "sort");
-            
-            if (genre) url += "&includedTags[]=" + genre;
-            if (status) url += "&status[]=" + status;
-            if (demo) url += "&publicationDemographic[]=" + demo;
-            
             if (sort === "popular") {
-                url += "&order[followedCount]=desc";
+                path += "&order[followedCount]=desc";
             } else if (sort === "title") {
-                url += "&order[title]=asc";
-            } else {
-                url += "&order[relevance]=desc";
+                path += "&order[title]=asc";
             }
             
-            var data = await this.fetchJson(url);
-            var list = [];
-            var results = data.results || [];
+            var data = await this.api(path);
             
+            var results = data.results || [];
+            var list = [];
             for (var i = 0; i < results.length; i++) {
-                var manga = results[i];
-                list.push({
-                    name: getTitle(manga.attributes),
-                    imageUrl: getCover(manga),
-                    link: manga.id
-                });
+                list.push(this.mapManga(results[i]));
             }
             
             var total = data.total || 0;
@@ -240,15 +184,12 @@ class DefaultExtension extends MProvider {
         try {
             var mangaId = url;
             
-            // Fetch manga details
-            var detailUrl = MD_BASE + "/manga/" + mangaId + 
-                "?includes[]=cover_art&includes[]=author&includes[]=artist";
-            var mangaData = await this.fetchJson(detailUrl);
+            var mangaData = await this.api("/manga/" + mangaId + "?includes[]=cover_art&includes[]=author");
             var attrs = mangaData.data.attributes;
             
-            var title = getTitle(attrs);
-            var desc = getDesc(attrs);
-            var cover = getCover(mangaData.data);
+            var title = getMangaTitle(attrs);
+            var desc = getMangaDesc(attrs);
+            var cover = getCoverUrl(mangaData.data);
             
             // Get tags
             var tags = [];
@@ -264,9 +205,9 @@ class DefaultExtension extends MProvider {
             var author = "";
             var rels = mangaData.data.relationships || [];
             for (var j = 0; j < rels.length; j++) {
-                var rel = rels[j];
-                if (rel.type === "author" && !author && rel.attributes) {
-                    author = rel.attributes.name || "";
+                var r = rels[j];
+                if (r.type === "author" && !author && r.attributes) {
+                    author = r.attributes.name || "";
                 }
             }
             
@@ -307,37 +248,37 @@ class DefaultExtension extends MProvider {
     
     async fetchChapters(mangaId) {
         try {
-            var url = MD_BASE + "/manga/" + mangaId + "/feed?" +
+            var data = await this.api("/manga/" + mangaId + "/feed?" +
                 "limit=100&offset=0&translatedLanguage[]=en" +
-                "&order[chapter]=asc&order[volume]=asc&includes[]=scanlation_group";
+                "&order[chapter]=asc&order[volume]=asc&includes[]=scanlation_group");
             
-            var data = await this.fetchJson(url);
             var chapters = [];
             var results = data.results || [];
             
             for (var i = 0; i < results.length; i++) {
-                var chapter = results[i];
-                var cattrs = chapter.attributes;
+                var ch = results[i];
+                var cattrs = ch.attributes;
                 
                 // Get scanlation group
                 var scanlator = "";
-                var crels = chapter.relationships || [];
+                var crels = ch.relationships || [];
                 for (var j = 0; j < crels.length; j++) {
-                    if (crels[j].type === "scanlation_group" && crels[j].attributes) {
-                        scanlator = crels[j].attributes.name || "";
+                    var cr = crels[j];
+                    if (cr.type === "scanlation_group" && cr.attributes) {
+                        scanlator = cr.attributes.name || "";
                         break;
                     }
                 }
                 
-                // Format chapter name
+                // Format name
                 var vol = cattrs.volume || "";
-                var ch = cattrs.chapter || "";
+                var num = cattrs.chapter || "";
                 var name = "";
                 
-                if (vol && ch) {
-                    name = "Ch. " + vol + "." + ch;
-                } else if (ch) {
-                    name = "Ch. " + ch;
+                if (vol && num) {
+                    name = "Ch. " + vol + "." + num;
+                } else if (num) {
+                    name = "Ch. " + num;
                 } else if (vol) {
                     name = "Vol. " + vol;
                 } else {
@@ -349,14 +290,14 @@ class DefaultExtension extends MProvider {
                 }
                 
                 // Date
-                var publishAt = cattrs.publishAt || cattrs.createdAt || "";
-                var dateUpload = publishAt ? new Date(publishAt).getTime() : 0;
+                var pubAt = cattrs.publishAt || cattrs.createdAt || "";
+                var dateMs = pubAt ? new Date(pubAt).getTime() : 0;
                 
                 chapters.push({
                     name: name,
-                    url: chapter.id,
+                    url: ch.id,
                     scanlator: scanlator || "Unknown",
-                    dateUpload: String(dateUpload)
+                    dateUpload: String(dateMs)
                 });
             }
             
@@ -371,16 +312,7 @@ class DefaultExtension extends MProvider {
         try {
             var chapterId = url;
             
-            var client = new Client(this.clientConfig);
-            var resp = await client.get(
-                MD_BASE + "/at-home/server/" + chapterId,
-                this.getHeaders()
-            );
-            
-            if (resp.statusCode !== 200) {
-                throw new Error("HTTP " + resp.statusCode);
-            }
-            
+            var resp = await new Client().get(MD_BASE + "/at-home/server/" + chapterId);
             var data = JSON.parse(resp.body);
             
             if (!data.data || !data.data.attributes) {
@@ -423,12 +355,6 @@ class DefaultExtension extends MProvider {
                 type: "status",
                 name: "Status",
                 values: MD_STATUS
-            },
-            {
-                type_name: "SelectFilter",
-                type: "demographic",
-                name: "Demographic",
-                values: MD_DEMO
             }
         ];
     }
