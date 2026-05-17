@@ -122,14 +122,14 @@
     "hasCloudflare": false,
     "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/multporn.js",
     "apiUrl": "",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "isManga": true,
     "itemType": 0,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "Western comics + Manga parodies | Filters: Parody/Artist/Tag | 50+ anime/game parodies"
+    "notes": "Western comics + Manga parodies | 170+ anime/game parodies"
   }
   ,{
     "name": "AnymeX Anime",
