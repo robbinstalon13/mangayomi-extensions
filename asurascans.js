@@ -7,7 +7,7 @@ const mangayomiSources = [{
     "iconUrl": "https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/javascript/icon/en.asurascans.png",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.2.0",
+    "version": "0.4.0",
     "dateFormat": "",
     "dateFormatLocale": "",
     "pkgPath": "asurascans.js"
@@ -16,8 +16,8 @@ const mangayomiSources = [{
 class DefaultExtension extends MProvider {
     getHeaders() {
         return {
-            "Referer": this.source.baseUrl + "/",
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+            "Referer": this.source.baseUrl,
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
         };
     }
 
@@ -26,77 +26,59 @@ class DefaultExtension extends MProvider {
         return pref && pref.startsWith("http") ? pref : this.source.baseUrl;
     }
 
-    async mangaListFromPage(path) {
-        const baseUrl = await this.getBaseUrl();
-        const res = await new Client().get(baseUrl + path, this.getHeaders());
-        const doc = new Document(res.body);
+    // Extract title from URL slug like "trash-of-the-counts-family-030ff47a"
+    slugToTitle(slug) {
+        return slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    }
+
+    // Parse manga list from HTML using regex
+    parseMangaList(body, baseUrl) {
         const list = [];
+        const seen = {};
         
-        // Try different selectors for manga cards
-        const mangaElements = doc.select("a[href*='/comics/']");
-        for (const element of mangaElements) {
-            const href = element.getHref;
-            if (!href || !href.includes("/comics/")) continue;
+        // Match pattern: <a href="/comics/title-hash"><img src="..."...>...</a>
+        const cardRegex = /<a href="(\/comics\/[^"]+)">[\s\S]*?<img[^>]+src="([^"]+)"[\s\S]*?<h3[^>]*>([^<]+)<\/h3>/g;
+        let match;
+        
+        while ((match = cardRegex.exec(body)) !== null) {
+            const link = match[1];
+            const image = match[2];
+            const name = match[3].trim();
             
-            const name = element.selectFirst("span")?.text || element.selectFirst("h3")?.text || "";
-            const img = element.selectFirst("img");
-            const imageUrl = img?.getSrc || "";
-            
-            if (name && href) {
-                list.push({ name: name.trim(), imageUrl, link: href });
+            if (!seen[link]) {
+                seen[link] = true;
+                list.push({ name, imageUrl: image, link });
             }
         }
         
-        // Remove duplicates
-        const seen = {};
-        const uniqueList = list.filter(item => {
-            if (seen[item.link]) return false;
-            seen[item.link] = true;
-            return true;
-        });
-        
-        // Check for next page
-        const nextBtn = doc.selectFirst("a:contains('Next')");
-        const hasNextPage = !!nextBtn;
-        
-        return { list: uniqueList, hasNextPage };
-    }
-
-    toStatus(status) {
-        if (status == "Ongoing") return 0;
-        else if (status == "Completed") return 1;
-        else if (status == "Hiatus") return 2;
-        else if (status == "Dropped") return 3;
-        return 5;
-    }
-
-    parseDate(dateStr) {
-        if (!dateStr) return String(Date.now());
-        dateStr = dateStr.toLowerCase();
-        
-        const months = {
-            "january": "01", "february": "02", "march": "03", "april": "04",
-            "may": "05", "june": "06", "july": "07", "august": "08",
-            "september": "09", "october": "10", "november": "11", "december": "12"
-        };
-        
-        try {
-            dateStr = dateStr.replace(/(st|nd|rd|th)/g, "").trim();
-            const parts = dateStr.split(" ");
-            
-            if (months[parts[0]] && parts[2]) {
-                parts[0] = months[parts[0]];
-                const formatted = `${parts[2]}-${parts[0]}-${parts[1].padStart(2, "0")}`;
-                return String(new Date(formatted).getTime());
+        // If above didn't work, try simpler pattern
+        if (list.length === 0) {
+            const simpleRegex = /<a href="(\/comics\/[^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<h3>([^<]+)<\/h3>/g;
+            while ((match = simpleRegex.exec(body)) !== null) {
+                const link = match[1];
+                const image = match[2];
+                const name = match[3].trim();
+                
+                if (!seen[link]) {
+                    seen[link] = true;
+                    list.push({ name, imageUrl: image, link });
+                }
             }
-        } catch (e) {}
+        }
         
-        return String(Date.now());
+        // Check for pagination
+        const hasNext = /href="[^"]*\?page=\d+"[^>]*>\s*Next/i.test(body) || 
+                       /<a[^>]*class="[^"]*next[^"]*"[^>]*>/i.test(body);
+        
+        return { list, hasNextPage: hasNext };
     }
 
     async getPopular(page) {
         try {
-            return await this.mangaListFromPage(`/series?name=&status=-1&types=-1&order=rating&page=${page}`);
+            const baseUrl = await this.getBaseUrl();
+            const url = `${baseUrl}/series?name=&status=-1&types=-1&order=rating&page=${page}`;
+            const res = await new Client().get(url, this.getHeaders());
+            return this.parseMangaList(res.body, baseUrl);
         } catch (e) {
             return { list: [], hasNextPage: false };
         }
@@ -104,7 +86,10 @@ class DefaultExtension extends MProvider {
 
     async getLatestUpdates(page) {
         try {
-            return await this.mangaListFromPage(`/series?genres=&status=-1&types=-1&order=update&page=${page}`);
+            const baseUrl = await this.getBaseUrl();
+            const url = `${baseUrl}/series?genres=&status=-1&types=-1&order=update&page=${page}`;
+            const res = await new Client().get(url, this.getHeaders());
+            return this.parseMangaList(res.body, baseUrl);
         } catch (e) {
             return { list: [], hasNextPage: false };
         }
@@ -112,10 +97,64 @@ class DefaultExtension extends MProvider {
 
     async search(query, page, filters) {
         try {
-            return await this.mangaListFromPage(`/series?name=${encodeURIComponent(query)}&page=${page}`);
+            const baseUrl = await this.getBaseUrl();
+            const url = `${baseUrl}/series?name=${encodeURIComponent(query)}&page=${page}`;
+            const res = await new Client().get(url, this.getHeaders());
+            return this.parseMangaList(res.body, baseUrl);
         } catch (e) {
             return { list: [], hasNextPage: false };
         }
+    }
+
+    parseDetail(body, baseUrl) {
+        let imageUrl = "";
+        let description = "";
+        const genre = [];
+        const chapters = [];
+        
+        // Cover image
+        const coverMatch = body.match(/<img[^>]+alt=["']poster["'][^>]+src="([^"]+)"/i);
+        if (!coverMatch) {
+            const posterImg = body.match(/<img[^>]+src="(https:\/\/cdn\.asurascans\.com[^"]+poster[^"]+)"/i);
+            if (posterImg) imageUrl = posterImg[1];
+        } else {
+            imageUrl = coverMatch[1];
+        }
+        
+        // Description
+        const descMatch = body.match(/<span[^>]+class=["'][^"]*font-medium[^"]*text-sm["'][^>]*>([^<]+)<\/span>/i);
+        if (descMatch) description = descMatch[1].trim();
+        
+        // Genres
+        const genreMatches = body.matchAll(/<a[^>]+href=["'][^"]*browse\?genres=([^"']+)["'][^>]*>([^<]+)<\/a>/gi);
+        for (const m of genreMatches) {
+            genre.push(m[2].trim());
+        }
+        
+        // Chapters - find chapter links
+        const chapRegex = /<a[^>]+href="(\/comics\/[^/]+\/chapter\/[^"]+)"[^>]*>\s*<div[^>]*>\s*([^<]+)/g;
+        let chapMatch;
+        while ((chapMatch = chapRegex.exec(body)) !== null) {
+            const url = chapMatch[1].startsWith("http") ? chapMatch[1].replace(baseUrl, "") : chapMatch[1];
+            const name = chapMatch[2].trim();
+            if (name && url.includes("/chapter/")) {
+                chapters.push({ name, url, dateUpload: String(Date.now()) });
+            }
+        }
+        
+        // Fallback: any chapter link
+        if (chapters.length === 0) {
+            const anyChap = body.matchAll(/href="(\/comics\/[^/]+\/chapter\/[^"]+)"/g);
+            for (const m of anyChap) {
+                const url = m[1].startsWith("http") ? m[1].replace(baseUrl, "") : m[1];
+                const name = url.split("/").pop().replace(/-/g, " ");
+                if (url.includes("/chapter/") && chapters.length < 500) {
+                    chapters.push({ name, url, dateUpload: String(Date.now()) });
+                }
+            }
+        }
+        
+        return { imageUrl, description, genre, chapters };
     }
 
     async getDetail(url) {
@@ -123,65 +162,45 @@ class DefaultExtension extends MProvider {
             const baseUrl = await this.getBaseUrl();
             const fullUrl = url.startsWith("http") ? url : baseUrl + "/" + url;
             const res = await new Client().get(fullUrl, this.getHeaders());
-            const doc = new Document(res.body);
-            
-            const imageUrl = doc.selectFirst("img[alt*='poster']")?.getSrc || "";
-            const description = doc.selectFirst("span.font-medium.text-sm")?.text?.trim() || "";
-            
-            // Get info from labels
-            let author = "", artist = "", status = 5, genre = [];
-            const infoBlocks = doc.select("div:has(h3:contains('Author'))");
-            
-            // Try to find info labels
-            const allText = doc.selectFirst("body")?.text || "";
-            
-            // Genres
-            const genreBtns = doc.select("button.text-white, a[href*='/browse?genres=']");
-            for (const btn of genreBtns) {
-                const text = btn.text?.trim();
-                if (text && text.length < 30) genre.push(text);
-            }
-            
-            // Chapters - look for chapter links
-            const chapters = [];
-            const chapterLinks = doc.select("a[href*='/chapter/']");
-            let chapCount = 0;
-            for (const link of chapterLinks) {
-                if (chapCount >= 500) break;
-                const href = link.getHref;
-                const name = link.text?.trim() || "";
-                if (href && href.includes("/chapter/")) {
-                    chapters.push({ name, url: href.replace(baseUrl, ""), dateUpload: String(Date.now()) });
-                    chapCount++;
-                }
-            }
+            const parsed = this.parseDetail(res.body, baseUrl);
             
             return {
-                imageUrl,
-                description,
-                genre,
-                author,
-                artist,
-                status,
-                chapters: chapters.reverse()
+                imageUrl: parsed.imageUrl,
+                description: parsed.description,
+                genre: parsed.genre,
+                author: "",
+                artist: "",
+                status: 0,
+                chapters: parsed.chapters.reverse()
             };
         } catch (e) {
-            return { name: "Error", imageUrl: "", description: e.message, author: "", artist: "", genre: [], status: 5, chapters: [] };
+            return { name: "Error", imageUrl: "", description: String(e), author: "", artist: "", genre: [], status: 5, chapters: [] };
         }
     }
 
     async getPageList(url) {
         try {
             const baseUrl = await this.getBaseUrl();
-            const fullUrl = url.startsWith("http") ? url : baseUrl + url;
+            const fullUrl = url.startsWith("http") ? url : baseUrl + "/" + url;
             const res = await new Client().get(fullUrl, this.getHeaders());
-            const doc = new Document(res.body);
             
             const pages = [];
-            const pageImgs = doc.select("img[src*='/pages/'], img[data-src*='/pages/']");
-            for (const img of pageImgs) {
-                const src = img.getSrc || img.getAttribute("data-src") || "";
-                if (src) pages.push(src);
+            
+            // Look for image sources in various patterns
+            const patterns = [
+                /data-src="(https:\/\/cdn\.asurascans\.com\/data\/[^"]+)"/g,
+                /src="(https:\/\/cdn\.asurascans\.com\/data\/[^"]+)"/g,
+                /"url"\s*:\s*"([^"]+\.(jpg|png|webp)[^"]*)"/g
+            ];
+            
+            for (const pattern of patterns) {
+                const matches = res.body.matchAll(pattern);
+                for (const m of matches) {
+                    const src = m[1];
+                    if (src && !src.includes("preview") && pages.indexOf(src) === -1) {
+                        pages.push(src);
+                    }
+                }
             }
             
             return pages;
@@ -199,10 +218,10 @@ class DefaultExtension extends MProvider {
             key: "overrideBaseUrl1",
             editTextPreference: {
                 title: "Override BaseUrl",
-                summary: "Leave empty to use default",
+                summary: "For mirror sites",
                 value: "",
                 dialogTitle: "Override BaseUrl",
-                dialogMessage: "For mirror sites only"
+                dialogMessage: ""
             }
         }];
     }
