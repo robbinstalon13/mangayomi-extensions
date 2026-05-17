@@ -1,242 +1,184 @@
-// MangaDex Extension for Mangayomi
-// API: https://api.mangadex.org
-
-var MD_BASE = "https://api.mangadex.org";
-var MD_COVER = "https://uploads.mangadex.org";
-
-var MD_GENRES = [
-    { name: "Any", value: "" },
-    { name: "Action", value: "action" },
-    { name: "Adventure", value: "adventure" },
-    { name: "Comedy", value: "comedy" },
-    { name: "Drama", value: "drama" },
-    { name: "Fantasy", value: "fantasy" },
-    { name: "Romance", value: "romance" },
-    { name: "Sci-Fi", value: "science-fiction" },
-    { name: "Slice of Life", value: "slice-of-life" },
-    { name: "Supernatural", value: "supernatural" },
-    { name: "Horror", value: "horror" },
-    { name: "Mystery", value: "mystery" },
-    { name: "Thriller", value: "thriller" },
-    { name: "Sports", value: "sports" },
-    { name: "Isekai", value: "isekai" }
-];
-
-var MD_STATUS = [
-    { name: "Any", value: "" },
-    { name: "Ongoing", value: "ongoing" },
-    { name: "Completed", value: "completed" },
-    { name: "Hiatus", value: "hiatus" }
-];
-
-var MD_SORT = [
-    { name: "Latest", value: "latest" },
-    { name: "Popular", value: "popular" },
-    { name: "Title A-Z", value: "title" }
-];
-
-function safeStr(s) {
-    if (s === null || s === undefined) return "";
-    return String(s);
-}
-
-function getMangaTitle(attrs) {
-    if (!attrs || !attrs.title) return "Unknown";
-    return attrs.title.en || attrs.title["en-us"] || Object.values(attrs.title)[0] || "Unknown";
-}
-
-function getMangaDesc(attrs) {
-    if (!attrs || !attrs.description) return "";
-    return attrs.description.en || attrs.description["en-us"] || "";
-}
-
-function getCoverUrl(manga) {
-    var rels = manga.relationships || [];
-    for (var i = 0; i < rels.length; i++) {
-        var r = rels[i];
-        if (r.type === "cover_art" && r.attributes && r.attributes.fileName) {
-            return MD_COVER + "/covers/" + manga.id + "/" + r.attributes.fileName + ".256.jpg";
-        }
-    }
-    return "";
-}
-
-function getFilterVal(filters, type) {
-    if (!filters || !Array.isArray(filters)) return "";
-    for (var i = 0; i < filters.length; i++) {
-        var f = filters[i];
-        if (f && f.type === type) {
-            if (typeof f.state === "number" && Array.isArray(f.values) && f.values[f.state]) {
-                return safeStr(f.values[f.state].value || "");
-            }
-        }
-    }
-    return "";
-}
+const mangayomiSources = [{
+    "name": "MangaDex",
+    "lang": "en",
+    "baseUrl": "https://mangadex.org",
+    "apiUrl": "https://api.mangadex.org",
+    "iconUrl": "https://api.mangadex.org/static/favicon.svg",
+    "typeSource": "single",
+    "itemType": 0,
+    "isNsfw": false,
+    "version": "1.0.0",
+    "pkgPath": "mangadex.js"
+}];
 
 class DefaultExtension extends MProvider {
-    async api(path) {
-        var resp = await new Client().get(MD_BASE + path);
-        return JSON.parse(resp.body);
+    constructor() {
+        super();
+        this.client = new Client();
     }
-    
-    mapManga(m) {
+
+    getHeaders() {
         return {
-            name: getMangaTitle(m.attributes),
-            imageUrl: getCoverUrl(m),
-            link: m.id
+            "user-agent": "Dalvik/2.1.0 (Linux; U; Android 14; 22081212UG Build/UKQ1.230917.001)"
         };
     }
-    
+
     async getPopular(page) {
         try {
-            var pageNum = Math.max(1, parseInt(page, 10) || 1);
-            var limit = 20;
-            var offset = (pageNum - 1) * limit;
-            
-            var data = await this.api("/manga?limit=" + limit + "&offset=" + offset + 
-                "&order[followedCount]=desc&includes[]=cover_art");
-            
-            var results = data.results || [];
-            var list = [];
-            for (var i = 0; i < results.length; i++) {
-                list.push(this.mapManga(results[i]));
-            }
-            
-            var total = data.total || 0;
-            var hasNext = (offset + limit) < total;
-            
-            return { list: list, hasNextPage: hasNext };
+            const offset = 20 * (page - 1);
+            const url = `${this.source.apiUrl}/manga?limit=20&offset=${offset}` +
+                `&availableTranslatedLanguage[]=en` +
+                `&includes[]=cover_art` +
+                `&contentRating[]=safe` +
+                `&contentRating[]=suggestive` +
+                `&originalLanguage[]=ja` +
+                `&originalLanguage[]=ko` +
+                `&originalLanguage[]=zh` +
+                `&order[followedCount]=desc`;
+
+            const response = await this.client.get(url, this.getHeaders());
+            return this.mangaRes(response.body);
         } catch (e) {
-            console.log("[mangadex] getPopular error: " + e.message);
             return { list: [], hasNextPage: false };
         }
     }
-    
-    get supportsLatest() {
-        return true;
-    }
-    
+
     async getLatestUpdates(page) {
         try {
-            var pageNum = Math.max(1, parseInt(page, 10) || 1);
-            var limit = 20;
-            var offset = (pageNum - 1) * limit;
-            
-            var data = await this.api("/manga?limit=" + limit + "&offset=" + offset + 
-                "&order[latestUploadedChapter]=desc&includes[]=cover_art");
-            
-            var results = data.results || [];
-            var list = [];
-            for (var i = 0; i < results.length; i++) {
-                list.push(this.mapManga(results[i]));
+            const offset = 20 * (page - 1);
+            // Get recent chapters first
+            const chapterUrl = `${this.source.apiUrl}/chapter?limit=20&offset=${offset}` +
+                `&translatedLanguage[]=en` +
+                `&includeFutureUpdates=0` +
+                `&order[publishAt]=desc` +
+                `&includeFuturePublishAt=0` +
+                `&includeEmptyPages=0`;
+
+            const chapterRes = await this.client.get(chapterUrl, this.getHeaders());
+            const chapterData = JSON.parse(chapterRes.body).data || [];
+
+            // Get unique manga IDs
+            const mangaIds = [...new Set(
+                chapterData
+                    .flatMap(item => item.relationships || [])
+                    .filter(rel => rel.type === "manga")
+                    .map(m => m.id)
+            )];
+
+            if (mangaIds.length === 0) {
+                return { list: [], hasNextPage: false };
             }
-            
-            var total = data.total || 0;
-            var hasNext = (offset + limit) < total;
-            
-            return { list: list, hasNextPage: hasNext };
+
+            // Fetch manga details
+            const idsParam = mangaIds.map(id => `ids[]=${id}`).join("&");
+            const mangaUrl = `${this.source.apiUrl}/manga?includes[]=cover_art` +
+                `&limit=${mangaIds.length}` +
+                `&contentRating[]=safe` +
+                `&contentRating[]=suggestive` +
+                `&originalLanguage[]=ja` +
+                `&originalLanguage[]=ko` +
+                `&originalLanguage[]=zh` +
+                `&${idsParam}`;
+
+            const mangaRes = await this.client.get(mangaUrl, this.getHeaders());
+            return this.mangaRes(mangaRes.body);
         } catch (e) {
-            console.log("[mangadex] getLatestUpdates error: " + e.message);
             return { list: [], hasNextPage: false };
         }
     }
-    
+
     async search(query, page, filters) {
         try {
-            var pageNum = Math.max(1, parseInt(page, 10) || 1);
-            var limit = 20;
-            var offset = (pageNum - 1) * limit;
-            
-            var path = "/manga?limit=" + limit + "&offset=" + offset + 
-                "&title=" + encodeURIComponent(query.trim()) +
-                "&includes[]=cover_art";
-            
-            var genre = getFilterVal(filters, "genre");
-            if (genre) path += "&includedTags[]=" + genre;
-            
-            var sort = getFilterVal(filters, "sort");
-            if (sort === "popular") {
-                path += "&order[followedCount]=desc";
-            } else if (sort === "title") {
-                path += "&order[title]=asc";
+            const offset = 20 * (page - 1);
+            let url = `${this.source.apiUrl}/manga?includes[]=cover_art` +
+                `&offset=${offset}&limit=20&title=${encodeURIComponent(query)}` +
+                `&contentRating[]=safe&contentRating[]=suggestive`;
+
+            // Apply filters
+            if (filters && Array.isArray(filters)) {
+                for (const filter of filters) {
+                    if (filter.type === "status") {
+                        const status = this.getFilterValue(filter);
+                        if (status) url += `&status[]=${status}`;
+                    }
+                    if (filter.type === "sort") {
+                        const sort = this.getFilterValue(filter);
+                        if (sort === "popular") url += "&order[followedCount]=desc";
+                        else if (sort === "latest") url += "&order[latestUploadedChapter]=desc";
+                        else if (sort === "title") url += "&order[title]=asc";
+                    }
+                }
             }
-            
-            var data = await this.api(path);
-            
-            var results = data.results || [];
-            var list = [];
-            for (var i = 0; i < results.length; i++) {
-                list.push(this.mapManga(results[i]));
-            }
-            
-            var total = data.total || 0;
-            var hasNext = (offset + limit) < total;
-            
-            return { list: list, hasNextPage: hasNext };
+
+            const response = await this.client.get(url, this.getHeaders());
+            return this.mangaRes(response.body);
         } catch (e) {
-            console.log("[mangadex] search error: " + e.message);
             return { list: [], hasNextPage: false };
         }
     }
-    
+
+    getFilterValue(filter) {
+        if (typeof filter.state === "number" && Array.isArray(filter.values)) {
+            const selected = filter.values[filter.state];
+            return selected ? selected.value : "";
+        }
+        return "";
+    }
+
     async getDetail(url) {
         try {
-            var mangaId = url;
-            
-            var mangaData = await this.api("/manga/" + mangaId + "?includes[]=cover_art&includes[]=author");
-            var attrs = mangaData.data.attributes;
-            
-            var title = getMangaTitle(attrs);
-            var desc = getMangaDesc(attrs);
-            var cover = getCoverUrl(mangaData.data);
-            
-            // Get tags
-            var tags = [];
-            var tagList = attrs.tags || [];
-            for (var i = 0; i < tagList.length; i++) {
-                var tag = tagList[i];
-                if (tag.attributes && tag.attributes.name && tag.attributes.name.en) {
-                    tags.push(tag.attributes.name.en);
-                }
-            }
-            
-            // Get author
-            var author = "";
-            var rels = mangaData.data.relationships || [];
-            for (var j = 0; j < rels.length; j++) {
-                var r = rels[j];
-                if (r.type === "author" && !author && r.attributes) {
-                    author = r.attributes.name || "";
-                }
-            }
-            
-            // Status: 0=ongoing, 1=completed, 5=unknown
-            var status = 5;
+            const mangaId = url.startsWith("/manga/") ? url.split("/")[2] : url;
+            const detailUrl = `${this.source.apiUrl}/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist`;
+            const response = await this.client.get(detailUrl, this.getHeaders());
+            const data = JSON.parse(response.body).data;
+            const attrs = data.attributes;
+
+            // Cover
+            const coverRel = (data.relationships || []).find(r => r.type === "cover_art");
+            const imageUrl = coverRel && coverRel.attributes
+                ? `https://uploads.mangadex.org/covers/${data.id}/${coverRel.attributes.fileName}.256.jpg`
+                : "";
+
+            // Authors
+            const authors = (data.relationships || [])
+                .filter(r => r.type === "author")
+                .map(r => r.attributes.name);
+            const author = authors.join(", ");
+
+            // Description
+            const description = attrs.description?.en || attrs.description?.["en-us"] || "";
+
+            // Tags
+            const genre = (attrs.tags || [])
+                .filter(t => t.attributes && t.attributes.name && t.attributes.name.en)
+                .map(t => t.attributes.name.en);
+
+            // Status
+            let status = 5;
             if (attrs.status === "ongoing") status = 0;
             else if (attrs.status === "completed") status = 1;
-            
+            else if (attrs.status === "hiatus") status = 2;
+
             // Fetch chapters
-            var chapters = await this.fetchChapters(mangaId);
-            
+            const chapters = await this.fetchChapters(mangaId);
+
             return {
-                name: title,
-                link: mangaId,
-                imageUrl: cover,
-                description: desc,
+                name: this.findTitle(data),
+                link: `/manga/${data.id}`,
+                imageUrl: imageUrl,
+                description: description,
                 author: author,
                 artist: author,
-                genre: tags,
+                genre: genre,
                 status: status,
                 chapters: chapters
             };
         } catch (e) {
-            console.log("[mangadex] getDetail error: " + e.message);
             return {
                 name: "Error",
                 link: url,
                 imageUrl: "",
-                description: e.message,
+                description: e.message || "Failed to load",
                 author: "",
                 artist: "",
                 genre: [],
@@ -245,117 +187,137 @@ class DefaultExtension extends MProvider {
             };
         }
     }
-    
+
+    findTitle(data) {
+        const titles = data.attributes.title || {};
+        if (titles.en) return titles.en;
+        if (titles["en-us"]) return titles["en-us"];
+        return Object.values(titles)[0] || "Unknown";
+    }
+
     async fetchChapters(mangaId) {
         try {
-            var data = await this.api("/manga/" + mangaId + "/feed?" +
-                "limit=100&offset=0&translatedLanguage[]=en" +
-                "&order[chapter]=asc&order[volume]=asc&includes[]=scanlation_group");
-            
-            var chapters = [];
-            var results = data.results || [];
-            
-            for (var i = 0; i < results.length; i++) {
-                var ch = results[i];
-                var cattrs = ch.attributes;
-                
-                // Get scanlation group
-                var scanlator = "";
-                var crels = ch.relationships || [];
-                for (var j = 0; j < crels.length; j++) {
-                    var cr = crels[j];
-                    if (cr.type === "scanlation_group" && cr.attributes) {
-                        scanlator = cr.attributes.name || "";
-                        break;
-                    }
+            const url = `${this.source.apiUrl}/manga/${mangaId}/feed` +
+                `?limit=100&offset=0` +
+                `&translatedLanguage[]=en` +
+                `&includes[]=scanlation_group` +
+                `&includes[]=user` +
+                `&order[volume]=asc` +
+                `&order[chapter]=asc` +
+                `&includeFuturePublishAt=0` +
+                `&includeEmptyPages=0`;
+
+            const res = await this.client.get(url, this.getHeaders());
+            const data = JSON.parse(res.body);
+            const results = data.data || [];
+
+            return results.map(ch => {
+                const attrs = ch.attributes || {};
+
+                // Scanlation group
+                let scanlator = "No Group";
+                const groups = (ch.relationships || []).filter(
+                    r => r.type === "scanlation_group" && r.id !== "00e03853-1b96-4f41-9542-c71b8692033b"
+                );
+                if (groups.length > 0 && groups[0].attributes) {
+                    scanlator = groups[0].attributes.name || scanlator;
                 }
-                
-                // Format name
-                var vol = cattrs.volume || "";
-                var num = cattrs.chapter || "";
-                var name = "";
-                
-                if (vol && num) {
-                    name = "Ch. " + vol + "." + num;
-                } else if (num) {
-                    name = "Ch. " + num;
-                } else if (vol) {
-                    name = "Vol. " + vol;
-                } else {
-                    name = "Oneshot";
-                }
-                
-                if (cattrs.title) {
-                    name += " - " + cattrs.title;
-                }
-                
+
+                // Chapter name
+                const vol = attrs.volume || "";
+                const num = attrs.chapter || "";
+                let name = "";
+                if (vol && num) name = `Vol.${vol} Ch.${num}`;
+                else if (num) name = `Ch.${num}`;
+                else name = "Oneshot";
+
+                if (attrs.title) name += ` - ${attrs.title}`;
+
                 // Date
-                var pubAt = cattrs.publishAt || cattrs.createdAt || "";
-                var dateMs = pubAt ? new Date(pubAt).getTime() : 0;
-                
-                chapters.push({
+                const dateUpload = attrs.publishAt
+                    ? new Date(attrs.publishAt).getTime().toString()
+                    : "0";
+
+                return {
                     name: name,
                     url: ch.id,
-                    scanlator: scanlator || "Unknown",
-                    dateUpload: String(dateMs)
-                });
-            }
-            
-            return chapters;
+                    scanlator: scanlator,
+                    dateUpload: dateUpload
+                };
+            });
         } catch (e) {
-            console.log("[mangadex] fetchChapters error: " + e.message);
             return [];
         }
     }
-    
+
     async getPageList(url) {
         try {
-            var chapterId = url;
-            
-            var resp = await new Client().get(MD_BASE + "/at-home/server/" + chapterId);
-            var data = JSON.parse(resp.body);
-            
-            if (!data.data || !data.data.attributes) {
-                throw new Error("Invalid chapter response");
-            }
-            
-            var dattrs = data.data.attributes;
-            var hash = dattrs.hash;
-            var pages = dattrs.data || [];
-            var server = data.baseUrl || MD_COVER;
-            
-            var pageUrls = [];
-            for (var i = 0; i < pages.length; i++) {
-                pageUrls.push(server + "/data/" + hash + "/" + pages[i]);
-            }
-            
-            return pageUrls;
+            const chapterId = url;
+            const pageUrl = `${this.source.apiUrl}/at-home/server/${chapterId}`;
+            const response = await this.client.get(pageUrl, this.getHeaders());
+            const data = JSON.parse(response.body);
+
+            const host = data.baseUrl || "https://uploads.mangadex.org";
+            const chapter = data.chapter;
+            const hash = chapter.hash;
+            const pages = chapter.data || [];
+
+            return pages.map(file => `${host}/data/${hash}/${file}`);
         } catch (e) {
-            console.log("[mangadex] getPageList error: " + e.message);
             return [];
         }
     }
-    
+
+    mangaRes(body) {
+        try {
+            const json = JSON.parse(body);
+            const data = json.data || [];
+            const list = data.map(e => ({
+                name: this.findTitle(e),
+                imageUrl: this.getCover(e),
+                link: `/manga/${e.id}`
+            }));
+            return { list, hasNextPage: list.length >= 20 };
+        } catch (e) {
+            return { list: [], hasNextPage: false };
+        }
+    }
+
+    getCover(data) {
+        const coverRel = (data.relationships || []).find(r => r.type === "cover_art");
+        if (coverRel && coverRel.attributes && coverRel.attributes.fileName) {
+            return `https://uploads.mangadex.org/covers/${data.id}/${coverRel.attributes.fileName}.256.jpg`;
+        }
+        return "";
+    }
+
     getFilterList() {
         return [
             {
                 type_name: "SelectFilter",
                 type: "sort",
                 name: "Sort",
-                values: MD_SORT
-            },
-            {
-                type_name: "SelectFilter",
-                type: "genre",
-                name: "Genre",
-                values: MD_GENRES
+                values: [
+                    { type_name: "SelectOption", name: "Popular", value: "popular" },
+                    { type_name: "SelectOption", name: "Latest", value: "latest" },
+                    { type_name: "SelectOption", name: "Title A-Z", value: "title" }
+                ]
             },
             {
                 type_name: "SelectFilter",
                 type: "status",
                 name: "Status",
-                values: MD_STATUS
+                values: [
+                    { type_name: "SelectOption", name: "Any", value: "" },
+                    { type_name: "SelectOption", name: "Ongoing", value: "ongoing" },
+                    { type_name: "SelectOption", name: "Completed", value: "completed" },
+                    { type_name: "SelectOption", name: "Hiatus", value: "hiatus" }
+                ]
             }
         ];
+    }
+
+    getSourcePreferences() {
+        return [];
     }
 }

@@ -133,7 +133,7 @@
   }
   ,{
     "name": "MangaDex",
-    "id": 177013140,
+    "id": 810342358,
     "baseUrl": "https://mangadex.org",
     "lang": "en",
     "typeSource": "single",
@@ -151,7 +151,7 @@
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "English manga | One Piece, Solo Leveling, JJK, Blue Lock, etc. | SFW only | Genre/Status/Demographic filters"
+    "notes": "English manga | One Piece, Solo Leveling, JJK, Blue Lock, etc. | SFW only"
   }
   ,{
     "name": "AnymeX Anime",
