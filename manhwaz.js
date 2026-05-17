@@ -159,11 +159,22 @@ class DefaultExtension extends MProvider {
     const pages = [];
     const imgEls = doc.select("div.page-break img, div.container img");
     for (const img of imgEls) {
-      let pageUrl = img.attr("data-src") || img.attr("src") || "";
-      if (!pageUrl || pageUrl.includes("data:image")) continue;
-      if (pageUrl.startsWith("//")) pageUrl = "https:" + pageUrl;
-      else if (pageUrl.startsWith("/")) pageUrl = baseUrl + pageUrl;
-      if (pages.indexOf(pageUrl) === -1) pages.push(pageUrl);
+      let rawUrl = img.attr("data-src");
+      if (!rawUrl) rawUrl = img.attr("src");
+      if (!rawUrl || rawUrl.includes("data:image")) continue;
+      
+      let finalUrl = "";
+      if (rawUrl.startsWith("//")) {
+        finalUrl = "https:" + rawUrl;
+      } else if (rawUrl.startsWith("/")) {
+        finalUrl = baseUrl + rawUrl;
+      } else {
+        finalUrl = rawUrl;
+      }
+      
+      if (finalUrl && pages.indexOf(finalUrl) === -1) {
+        pages.push(finalUrl);
+      }
     }
     return pages;
   }
