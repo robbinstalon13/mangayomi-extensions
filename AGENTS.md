@@ -129,3 +129,20 @@ Use `getVideoList(url)` instead of `getPageList(url)`. Return:
 
 - Use `console.log("[extension] message")` - output appears in Mangayomi console
 - Wrap all async methods in try-catch and call `this.logError()`
+
+## MangaDex Extension (mangadex.js)
+
+**API Base:** `https://api.mangadex.org`
+
+**Key Endpoints:**
+- Manga listing: `GET /manga?limit=X&offset=X&order[followedCount]=desc`
+- Chapter feed: `GET /manga/{id}/feed?translatedLanguage[]=en&order[chapter]=asc`
+- At-home server: `GET /at-home/server/{chapterId}` - returns image base URL and page hashes
+- Cover images: `https://uploads.mangadex.org/covers/{mangaId}/{filename}.256.jpg`
+
+**Important Notes:**
+- English translations use `translatedLanguage[]=en`
+- Tag IDs from `/manga?title=...` responses
+- Rate limit: ~5 requests/second
+- Use `includes[]=cover_art` to get cover URLs in manga responses
+- Use `includes[]=scanlation_group` in chapter feed for group names
