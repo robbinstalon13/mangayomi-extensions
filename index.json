@@ -219,4 +219,26 @@
     "sourceCodeLanguage": 1,
     "notes": "Wide manga catalog | Genre/Status/Type filters | Romaji/English titles"
   }
+  ,{
+    "name": "ManhwaZ",
+    "id": 777777771,
+    "baseUrl": "https://manhwaz.com",
+    "lang": "en",
+    "typeSource": "single",
+    "iconUrl": "https://manhwaz.com/apple-touch-icon.png",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/robbinstalon13/mangayomi-extensions/main/manhwaz.js",
+    "apiUrl": "",
+    "version": "0.1.0",
+    "isManga": true,
+    "itemType": 0,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1,
+    "notes": "English manhwa | Solo Leveling, Omniscient Reader, Trash of Count, etc."
+  }
 ]
